@@ -1,0 +1,4 @@
+.paket/
+packages/
+build/
+creds.fsx
