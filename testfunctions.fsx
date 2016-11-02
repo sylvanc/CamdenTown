@@ -29,13 +29,13 @@ let HttpClosure(req: HttpRequestMessage, log: TraceWriter) =
   "method": "%s",
   "uri": "%s",
   "body": "%s",
-  "numbers": "%s"
+  "numbers": [%s]
 }
 """
           req.Method.Method
           (req.RequestUri.ToString())
           body
-          (numbers |> List.map (fun i -> string i) |> String.concat ","),
+          (numbers |> List.map (fun i -> string i) |> String.concat ", "),
         Text.Encoding.UTF8,
         "application/json"
       )

@@ -1,14 +1,14 @@
 module CamdenTown.Compile
 
-#r "packages/System.Reflection.Metadata/lib/portable-net45+win8/System.Reflection.Metadata.dll"
-#r "packages/FSharp.Compiler.Service/lib/net45/FSharp.Compiler.Service.dll"
-#r "packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
-#r "packages/FsPickler/lib/net45/FsPickler.dll"
-#r "packages/Vagabond/lib/net45/Vagabond.dll"
-#r "packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
-#r "packages/Microsoft.Azure.WebJobs.Core/lib/net45/Microsoft.Azure.WebJobs.dll"
-#r "packages/Microsoft.Azure.WebJobs/lib/net45/Microsoft.Azure.WebJobs.Host.dll"
-#r "packages/Microsoft.Azure.WebJobs.Extensions/lib/net45/Microsoft.Azure.WebJobs.Extensions.dll"
+#r "../packages/System.Reflection.Metadata/lib/portable-net45+win8/System.Reflection.Metadata.dll"
+#r "../packages/FSharp.Compiler.Service/lib/net45/FSharp.Compiler.Service.dll"
+#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+#r "../packages/FsPickler/lib/net45/FsPickler.dll"
+#r "../packages/Vagabond/lib/net45/Vagabond.dll"
+#r "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
+#r "../packages/Microsoft.Azure.WebJobs.Core/lib/net45/Microsoft.Azure.WebJobs.dll"
+#r "../packages/Microsoft.Azure.WebJobs/lib/net45/Microsoft.Azure.WebJobs.Host.dll"
+#r "../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45/Microsoft.Azure.WebJobs.Extensions.dll"
 
 open System
 open System.IO
@@ -328,9 +328,9 @@ let Run([[PARAMETERS]]) =
       let pickle = manager.Serializer.Pickle x
       File.WriteAllBytes(pickleFile, pickle)
 
-      [ "packages/FsPickler/lib/net45/FsPickler.dll"
-        "packages/Vagabond/lib/net45/Vagabond.dll"
-        "packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
+      [ "../packages/FsPickler/lib/net45/FsPickler.dll"
+        "../packages/Vagabond/lib/net45/Vagabond.dll"
+        "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
       ]
       |> List.iter (fun file ->
         let source = sprintf "%s/%s" __SOURCE_DIRECTORY__ file

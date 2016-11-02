@@ -3,7 +3,7 @@ module CamdenTown.Manage
 #r "System.IO.Compression"
 #r "System.IO.Compression.FileSystem"
 #r "System.Net.Http"
-#r "packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
 
 open System
 open System.IO
