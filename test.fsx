@@ -49,19 +49,25 @@ let HttpClosure(req: HttpRequestMessage, log: TraceWriter) =
     return resp
   } |> Async.StartAsTask
 
-// [<Queue>]
-// let inQ = "in-queue"
+[<Queue>]
+let inQ = "in-queue"
 
-// [<Queue>]
-// let outQ = "out-queue"
+[<Queue>]
+let outQ = "out-queue"
 
-// // TODO: could go back and find inQ and look for attributes on it
-// [<QueueTrigger(inQ)>]
-// [<QueueResult(outQ)>]
-// let QueueHandler(input: String) =
-//   async {
-//     return "Processed: " + input
-//   } |> Async.StartAsTask
+[<CLIMutable>]
+type Foo = {
+  Name: string
+}
+
+[<QueueTrigger(typeof<Foo>, inQ)>]
+[<QueueResult(typeof<Foo>, outQ)>]
+let QueueHandler(input: Foo) =
+  async {
+    return { Name = "Processed: " + input.Name }
+  } |> Async.StartAsTask
+
+CamdenTown.Compile.Compiler.Check [QueueHandler]
 
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =

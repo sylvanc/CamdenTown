@@ -188,72 +188,70 @@ let Run([[PARAMETERS]]) =
 
     File.WriteAllText(sprintf "%s/function.json" localDir, json.ToString())
 
-  let compileTrigger dir x (mi: MethodInfo) (attrs: AzureAttribute list) =
+  let checkTrigger x (mi: MethodInfo) (attrs: AzureAttribute list) =
     let (psList, errorsList) =
       attrs
       |> List.collect (fun attr -> attr.Check mi)
       |> List.unzip
 
     let ps = (Log mi)::psList |> List.choose id
-    let errors = (Unbound mi ps)::errorsList |> List.concat
+    (Unbound mi ps)::errorsList |> List.concat
 
-    if errors.IsEmpty then
-      let localDir = sprintf "%s/%s" dir mi.Name
-      let pickleFile = sprintf "%s/pickle.bin" localDir
-      let asmFile = sprintf "%s/pickle.asm" localDir
-      let di = Directory.CreateDirectory(localDir)
+  let compileTrigger dir x (mi: MethodInfo) (attrs: AzureAttribute list) =
+    let localDir = sprintf "%s/%s" dir mi.Name
+    let pickleFile = sprintf "%s/pickle.bin" localDir
+    let asmFile = sprintf "%s/pickle.asm" localDir
+    let di = Directory.CreateDirectory(localDir)
 
-      let isIgnoredAssemblies (asm: Assembly) =
-        [ "FSharp.Compiler.Interactive.Settings"
-          "FsPickler"
-          "Newtonsoft.Json"
-          "System.Linq"
-          "System.Net.Http"
-          "System.Reflection"
-          "System.Resources.ResourceManager"
-          "System.Runtime"
-          "System.Runtime.Extensions"
-          "System.Security"
-          "System.Configuration"
-          "System.Spatial"
-          "System.Threading"
-          "System.Threading.Tasks"
-          "System.Threading.Tasks.Dataflow"
-          "Microsoft.Data.Edm"
-          "Microsoft.Data.OData"
-          "Microsoft.Data.Services.Client"
-          "Microsoft.WindowsAzure.Storage"
-          "Microsoft.Azure.WebJobs"
-          "Microsoft.Azure.WebJobs.Host"
-          "Microsoft.Azure.WebJobs.Extensions"
-        ] |> List.contains (asm.GetName().Name)
+    let isIgnoredAssemblies (asm: Assembly) =
+      [ "FSharp.Compiler.Interactive.Settings"
+        "FsPickler"
+        "Newtonsoft.Json"
+        "System.Linq"
+        "System.Net.Http"
+        "System.Reflection"
+        "System.Resources.ResourceManager"
+        "System.Runtime"
+        "System.Runtime.Extensions"
+        "System.Security"
+        "System.Configuration"
+        "System.Spatial"
+        "System.Threading"
+        "System.Threading.Tasks"
+        "System.Threading.Tasks.Dataflow"
+        "Microsoft.Data.Edm"
+        "Microsoft.Data.OData"
+        "Microsoft.Data.Services.Client"
+        "Microsoft.WindowsAzure.Storage"
+        "Microsoft.Azure.WebJobs"
+        "Microsoft.Azure.WebJobs.Host"
+        "Microsoft.Azure.WebJobs.Extensions"
+      ] |> List.contains (asm.GetName().Name)
 
-      let manager = Vagabond.Initialize(cacheDirectory = localDir, isIgnoredAssembly = isIgnoredAssemblies)
-      let deps = manager.ComputeObjectDependencies(x, permitCompilation = true)
+    let manager = Vagabond.Initialize(cacheDirectory = localDir, isIgnoredAssembly = isIgnoredAssemblies)
+    let deps = manager.ComputeObjectDependencies(x, permitCompilation = true)
 
-      let rdeps = manager.CreateRawAssemblies(deps)
-      let pickleRdeps = manager.Serializer.Pickle rdeps
-      File.WriteAllBytes(asmFile, pickleRdeps)
+    let rdeps = manager.CreateRawAssemblies(deps)
+    let pickleRdeps = manager.Serializer.Pickle rdeps
+    File.WriteAllBytes(asmFile, pickleRdeps)
 
-      let pickle = manager.Serializer.Pickle x
-      File.WriteAllBytes(pickleFile, pickle)
+    let pickle = manager.Serializer.Pickle x
+    File.WriteAllBytes(pickleFile, pickle)
 
-      [ "../packages/FsPickler/lib/net45/FsPickler.dll"
-        "../packages/Vagabond/lib/net45/Vagabond.dll"
-        "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
-      ]
-      |> List.iter (fun file ->
-        let source = sprintf "%s/%s" __SOURCE_DIRECTORY__ file
-        let target = sprintf "%s/%s" localDir (Path.GetFileName(file))
-        File.Copy(source, target)
-      )
+    [ "../packages/FsPickler/lib/net45/FsPickler.dll"
+      "../packages/Vagabond/lib/net45/Vagabond.dll"
+      "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
+    ]
+    |> List.iter (fun file ->
+      let source = sprintf "%s/%s" __SOURCE_DIRECTORY__ file
+      let target = sprintf "%s/%s" localDir (Path.GetFileName(file))
+      File.Copy(source, target)
+    )
 
-      functionJson localDir attrs
-      runFile localDir mi
+    functionJson localDir attrs
+    runFile localDir mi
 
-      localDir, attrs |> List.collect (fun attr -> attr.Build localDir)
-    else
-      null, errors
+    localDir, attrs |> List.collect (fun attr -> attr.Build localDir)
 
   let getResultAttrs (attrs: AzureAttribute []) =
     let resultAttrs =
@@ -337,6 +335,23 @@ type Compiler =
     | WithValue(x, _, List (|TheLambda|_|) mis) -> List.zip (x :?> obj list) mis
     | _ -> failwith "Not a function"
 
+  static member CheckExpr
+    ( exprs: Quotations.Expr<obj list>
+      ) =
+    Compiler.GetMI exprs
+    |> List.map (
+      (fun (x, mi) -> x, getAttrs mi) >>
+      (fun (x, (mi, attr, errors)) ->
+        let errors =
+          if errors.IsEmpty then
+            checkTrigger x mi attr
+          else
+            errors
+
+        mi.DeclaringType.FullName, mi.Name, errors
+      )
+    )
+
   static member CompileExpr
     ( dir: string,
       exprs: Quotations.Expr<obj list>
@@ -347,6 +362,11 @@ type Compiler =
     |> List.map (
       (fun (x, mi) -> x, getAttrs mi) >>
       (fun (x, (mi, attr, errors)) ->
+        if errors.IsEmpty then
+          x, mi, attr, checkTrigger x mi attr
+        else
+        x, mi, attr, errors) >>
+      (fun (x, mi, attr, errors) ->
         let (filename, errors) =
           if errors.IsEmpty then
             compileTrigger buildDir x mi attr
@@ -356,6 +376,11 @@ type Compiler =
         mi.DeclaringType.FullName, mi.Name, filename, errors
       )
     )
+
+  static member Check
+    ( [<ReflectedDefinition(true)>] exprs: Quotations.Expr<obj list>
+      ) =
+    Compiler.CheckExpr(exprs)
 
   static member Compile
     ( dir: string,

@@ -73,18 +73,29 @@ type ManualTriggerAttribute(name: string) =
 type QueueAttribute = LiteralAttribute
 
 [<AttributeUsage(AttributeTargets.Method)>]
-type QueueTriggerAttribute(queueName: string, connection: string, name: string) =
+type QueueTriggerAttribute(ty: Type, queueName: string, name: string) =
   inherit TriggerAttribute()
-  new (queueName) = QueueTriggerAttribute(queueName, "", "input")
-  new (queueName, connection) =
-    QueueTriggerAttribute(queueName, connection, "input")
+  new (ty, queueName) = QueueTriggerAttribute(ty, queueName, "input")
 
   override __.Check m =
-    [ Param m name
-        [ typeof<string>
-          typeof<byte []>
-          typeof<obj>
-        ]
+    [ DNSName queueName
+      ( if
+          ( [ typeof<string>
+              typeof<byte []>
+              typeof<obj>
+            ]
+            |> List.contains ty)
+          ||
+          ( ty.GetCustomAttributes()
+            |> Seq.exists (function
+              | :? CLIMutableAttribute -> true
+              | _ -> false))
+        then
+          None, []
+        else
+          None, ["The queue trigger input type must be a string, byte[], obj, or CLIMutable"]
+      )
+      Param m name [ty]
       OptParam m "expirationTime" [typeof<DateTimeOffset>]
       OptParam m "insertionTime" [typeof<DateTimeOffset>]
       OptParam m "nextVisisbleTime" [typeof<DateTimeOffset>]
@@ -98,32 +109,44 @@ type QueueTriggerAttribute(queueName: string, connection: string, name: string) 
     [ new JObject(
         [ JProperty("type", "queueTrigger")
           JProperty("queueName", queueName)
-          JProperty("connection", connection)
+          JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
           JProperty("direction", "in")
         ])
     ]
 
 [<AttributeUsage(AttributeTargets.Method)>]
-type QueueResultAttribute(queueName: string, connection: string) =
+type QueueResultAttribute(ty: Type, queueName: string) =
   inherit ResultAttribute()
-  new (queueName) = QueueResultAttribute(queueName, "")
 
   override __.Check m =
-    [ Result m
-        [ typeof<string>
-          typeof<byte []>
-          typeof<obj>
-          typeof<ICollector<_>>
-          typeof<IAsyncCollector<_>>
-        ]
+    [ DNSName queueName
+      ( if
+          ( [ typeof<string>
+              typeof<byte []>
+              typeof<obj>
+            ]
+            |> List.contains ty)
+          ||
+          (ty.IsSubclassOf typeof<obj>)
+        then
+          None, []
+        else
+          None, ["The queue result output type must be a string, a byte [], or an object type"]
+      )
+      Result m (
+        [ [ty]
+          TypesCollector [ty]
+          TypesAsyncCollector [ty]
+        ] |> List.concat
+        )
     ]
 
   override __.Json () =
     [ JObject(
         [ JProperty("type", "queue")
           JProperty("queueName", queueName)
-          JProperty("connection", connection)
+          JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", "$return")
           JProperty("direction", "out")
         ])

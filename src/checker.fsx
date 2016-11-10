@@ -7,16 +7,8 @@ module CamdenTown.Checker
 open System
 open System.Reflection
 open System.Threading.Tasks
+open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
-
-let private typesAsync (types: Type list) =
-  let task = typeof<Task<_>>
-  let generic = task.GetGenericTypeDefinition()
-
-  types
-  |> List.collect (fun t ->
-    [ t; generic.MakeGenericType [| t |] ]
-    )
 
 let private typeList (types: Type list) =
   sprintf
@@ -28,7 +20,7 @@ let private typeList (types: Type list) =
 
 let private typeInList t (types: Type list) =
   types
-  |> List.exists (fun typ -> t = typ || t.IsSubclassOf typ)
+  |> List.contains t
 
 let private _param (m: MethodInfo) name (types: Type list) optional =
   let nameErr () =
@@ -52,6 +44,23 @@ let private _param (m: MethodInfo) name (types: Type list) optional =
   | None ->
     None, []
 
+let BoundTypes (ty: Type) (types: Type list) =
+  let generic = ty.GetGenericTypeDefinition()
+
+  types
+  |> List.collect (fun t ->
+    [ t; generic.MakeGenericType [| t |] ]
+    )
+
+let TypesAsync (types: Type list) =
+  BoundTypes typeof<Task<_>> types
+
+let TypesCollector (types: Type list) =
+  BoundTypes typeof<ICollector<_>> types
+
+let TypesAsyncCollector (types: Type list) =
+  BoundTypes typeof<ICollector<_>> types
+
 let Param (m: MethodInfo) name (types: Type list) =
   _param m name types false
 
@@ -59,7 +68,7 @@ let OptParam (m: MethodInfo) name (types: Type list) =
   _param m name types true
 
 let Result (m: MethodInfo) (types: Type list) =
-  let taskTypes = typesAsync types
+  let taskTypes = TypesAsync types
   if not (taskTypes |> typeInList m.ReturnType) then
     None, [sprintf "Return type must be %s" (typeList taskTypes)]
   else
@@ -79,3 +88,18 @@ let Unbound (m: MethodInfo) ps =
   |> Array.filter (fun p -> not (List.contains p.Name ps))
   |> Array.map (fun p -> sprintf "Parameter '%s' is not bound" p.Name)
   |> List.ofArray
+
+let DNSName (name: string) =
+  let alphanumeric (c: char) = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+  let validdns (c: char) = (c = '-') || alphanumeric c
+
+  if
+    name.Length >= 3 &&
+    name.Length <= 63 &&
+    alphanumeric (name.Chars(0)) &&
+    alphanumeric (name.Chars(name.Length - 1)) &&
+    (name.ToCharArray() |> Array.forall validdns)
+  then
+    None, []
+  else
+    None, [sprintf "'%s' is not a valid DNS name" name]
