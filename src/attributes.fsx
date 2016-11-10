@@ -1,19 +1,47 @@
-module CamdenTown.Functions
+module CamdenTown.Attributes
 
-#load "manage.fsx"
-#load "compile.fsx"
+#load "checker.fsx"
+
+#r "System.Net.Http"
+#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
 
 open System
 open System.IO
-open System.Net
+open System.Reflection
 open System.Net.Http
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
 open Newtonsoft.Json.Linq
-open CamdenTown.Manage
-open CamdenTown.Compile
+open CamdenTown.Checker
 
 // F# attributes don't inherit AttributeUsage
+
+[<AbstractClass>]
+type AzureAttribute() =
+  inherit Attribute()
+  abstract member Check: MethodInfo -> (string option * string list) list
+  default __.Check(mi) = []
+  abstract member Json: unit -> JObject list
+  default __.Json() = []
+  abstract member Build: string -> string list
+  default __.Build(dir) = []
+
+[<AbstractClass>]
+type TriggerAttribute() =
+  inherit AzureAttribute()
+
+[<AbstractClass>]
+type ResultAttribute() =
+  inherit AzureAttribute()
+
+[<AbstractClass>]
+type ComplexAttribute() =
+  inherit AzureAttribute()
+
+[<AttributeUsage(AttributeTargets.Method)>]
+type NoResultAttribute() =
+  inherit ResultAttribute()
+  override __.Check m = [Result m [typeof<unit>]]
 
 [<AttributeUsage(AttributeTargets.Method)>]
 type ReferencesAttribute(refs: string [], path: string) =
@@ -32,7 +60,7 @@ type ManualTriggerAttribute(name: string) =
   inherit TriggerAttribute()
   new () = ManualTriggerAttribute("input")
 
-  override __.Check m = [Check.Param m name [typeof<string>]]
+  override __.Check m = [Param m name [typeof<string>]]
 
   override __.Json () =
     [ new JObject(
@@ -52,18 +80,18 @@ type QueueTriggerAttribute(queueName: string, connection: string, name: string) 
     QueueTriggerAttribute(queueName, connection, "input")
 
   override __.Check m =
-    [ Check.Param m name
+    [ Param m name
         [ typeof<string>
           typeof<byte []>
           typeof<obj>
         ]
-      Check.OptParam m "expirationTime" [typeof<DateTimeOffset>]
-      Check.OptParam m "insertionTime" [typeof<DateTimeOffset>]
-      Check.OptParam m "nextVisisbleTime" [typeof<DateTimeOffset>]
-      Check.OptParam m "queueTrigger" [typeof<string>]
-      Check.OptParam m "id" [typeof<string>]
-      Check.OptParam m "popReceipt" [typeof<string>]
-      Check.OptParam m "dequeueCount" [typeof<int>]
+      OptParam m "expirationTime" [typeof<DateTimeOffset>]
+      OptParam m "insertionTime" [typeof<DateTimeOffset>]
+      OptParam m "nextVisisbleTime" [typeof<DateTimeOffset>]
+      OptParam m "queueTrigger" [typeof<string>]
+      OptParam m "id" [typeof<string>]
+      OptParam m "popReceipt" [typeof<string>]
+      OptParam m "dequeueCount" [typeof<int>]
     ]
 
   override __.Json () =
@@ -82,7 +110,7 @@ type QueueResultAttribute(queueName: string, connection: string) =
   new (queueName) = QueueResultAttribute(queueName, "")
 
   override __.Check m =
-    [ Check.Result m
+    [ Result m
         [ typeof<string>
           typeof<byte []>
           typeof<obj>
@@ -105,7 +133,7 @@ type QueueResultAttribute(queueName: string, connection: string) =
 type TimerTriggerAttribute(schedule: string, name: string) =
   inherit TriggerAttribute()
   new (schedule) = TimerTriggerAttribute(schedule, "timer")
-  override __.Check m = [Check.Param m name [typeof<TimerInfo>]]
+  override __.Check m = [Param m name [typeof<TimerInfo>]]
 
   override __.Json () =
     [ new JObject(
@@ -122,8 +150,8 @@ type HttpTriggerAttribute(name: string) =
   new () = HttpTriggerAttribute("req")
 
   override __.Check m =
-    [ Check.Param m name [typeof<HttpRequestMessage>]
-      Check.Result m [typeof<HttpResponseMessage>]
+    [ Param m name [typeof<HttpRequestMessage>]
+      Result m [typeof<HttpResponseMessage>]
     ]
 
   override __.Json () =
@@ -140,66 +168,3 @@ type HttpTriggerAttribute(name: string) =
           JProperty("direction", "out")
         ])
     ]
-
-type AzureFunctionApp
-  (creds: Credentials, rg: ResourceGroup, plan: AppServicePlan, name: string,
-    ?dir: string) =
-
-  let auth = GetAuth creds
-
-  let attempt resp =
-    match resp with
-    | OK _ -> ()
-    | Error(reason, text) -> failwithf "%s: %s" reason text
-
-  do
-    attempt (CreateResourceGroup auth rg)
-    attempt (CreateAppServicePlan auth rg plan)
-    attempt (CreateFunctionApp auth rg plan name)
-    attempt (SetAppsetting auth rg name "FUNCTIONS_EXTENSION_VERSION" "latest")
-
-  let kuduAuth = KuduAuth auth rg name
-  let buildDir = defaultArg dir "build"
-
-  member __.deploy
-    ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
-      ) =
-    // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name with
-    | OK _ ->
-      let r = Compiler.compileExpr(buildDir, xs)
-      let ok = r |> List.forall (fun (_, _, _, errors) -> errors.IsEmpty)
-      let resp =
-        r
-        |> List.map (fun (typ, func, path, errors) ->
-          if errors.IsEmpty then
-            if ok then
-              DeleteFunction auth rg name func |> ignore
-              let target = sprintf "site/wwwroot/%s" func
-              match KuduVfsPutDir kuduAuth target path with
-              | OK _ -> OK func
-              | Error(reason, text) ->
-                Error((sprintf "%s: %s" func reason), text)
-            else
-              OK func
-          else
-            Error(func, String.concat "\n" errors)
-        )
-      (StartFunctionApp auth rg name)::resp
-    | x -> [x]
-
-  member __.undeploy
-    ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
-      ) =
-    // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name with
-    | OK _ ->
-      let resp =
-        Compiler.getMI xs
-        |> List.map (fun (x, mi) -> mi.Name)
-        |> List.map (fun func -> DeleteFunction auth rg name func)
-      (StartFunctionApp auth rg name)::resp
-    | x -> [x]
-
-  member __.delete () =
-    DeleteFunctionApp auth rg name

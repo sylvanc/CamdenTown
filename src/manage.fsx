@@ -18,7 +18,7 @@ type Response =
   | OK of string
   | Error of string * string
 
-module private Manage =
+module private Helpers =
   let makeClient (token: string) =
     let client = new HttpClient()
     if not (isNull token) then
@@ -69,6 +69,11 @@ module private Manage =
       "https://management.azure.com/subscriptions/%s/resourceGroups/%s?api-version=2015-11-01"
       subscriptionId name
 
+  let StorageAccountUri subscriptionId rgName name =
+    sprintf
+      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s?api-version=2016-01-01"
+      subscriptionId rgName name
+
   let AppServicePlanUri subscriptionId rgName name =
     sprintf
       "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s?api-version=2015-08-01"
@@ -98,7 +103,7 @@ module private Manage =
     else
       Error(response.ReasonPhrase, resp)
 
-open Manage
+open Helpers
 
 type Credentials = {
   SubscriptionID: string
@@ -110,6 +115,11 @@ type Credentials = {
 type ResourceGroup = {
   Name: string
   Location: string
+}
+
+type StorageAccount = {
+  Name: string
+  Sku: string
 }
 
 type AppServicePlan = {
@@ -158,13 +168,12 @@ let GetAuth (creds: Credentials) =
 let CreateResourceGroup auth (rg: ResourceGroup) =
   ResourceGroupUri auth.SubscriptionID rg.Name
   |> put auth.Token (
-      sprintf """
+    sprintf """
 {
   "location": "%s"
 }
 """
-        rg.Location
-      )
+      rg.Location)
   |> parseResponse
 
 let DeleteResourceGroup auth (rg: ResourceGroup) =
@@ -172,10 +181,69 @@ let DeleteResourceGroup auth (rg: ResourceGroup) =
   |> delete auth.Token
   |> parseResponse
 
+let CreateStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
+  StorageAccountUri auth.SubscriptionID rg.Name sa.Name
+  |> put auth.Token (
+    sprintf """
+{
+  "location": "%s",
+  "properties": {
+    "encryption": {
+      "services": {
+        "blob": {
+          "enabled": true
+        }
+      },
+      "keySource": "Microsoft.Storage"
+    }
+  },
+  "sku": {
+    "name": "%s"
+  },
+  "kind": "Storage"
+}
+"""
+      rg.Location
+      sa.Sku
+    )
+  |> parseResponse
+
+let DeleteStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
+  StorageAccountUri auth.SubscriptionID rg.Name sa.Name
+  |> delete auth.Token
+  |> parseResponse
+
+let StorageAccountKeys auth (rg: ResourceGroup) (sa: StorageAccount) =
+  let r =
+    sprintf
+      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/listKeys?api-version=2016-01-01"
+      auth.SubscriptionID rg.Name sa.Name
+    |> post auth.Token ""
+    |> parseResponse
+
+  match r with
+  | OK text ->
+    let json = JObject.Parse(text)
+    let keys = json.["keys"].Value<JArray>()
+
+    keys.Children()
+    |> Seq.filter (fun key ->
+      let prop = key.Value<JObject>()
+      let perm = prop.["permissions"].Value<string>()
+      String.Compare(perm, "full", StringComparison.OrdinalIgnoreCase) = 0
+      )
+    |> Seq.map (fun key ->
+      let prop = key.Value<JObject>()
+      prop.["value"].Value<string>()
+      )
+    |> List.ofSeq
+  | Error(reason, text) ->
+    failwithf "%s: %s" reason text
+
 let CreateAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
   AppServicePlanUri auth.SubscriptionID rg.Name plan.Name
   |> put auth.Token (
-      sprintf """
+    sprintf """
 {
   "location": "%s",
   "Sku": {
@@ -184,10 +252,10 @@ let CreateAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
   }
 }
 """
-        rg.Location
-        plan.SkuName
-        plan.Capacity
-      )
+      rg.Location
+      plan.SkuName
+      plan.Capacity
+    )
   |> parseResponse
 
 let DeleteAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
@@ -195,36 +263,47 @@ let DeleteAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
   |> delete auth.Token
   |> parseResponse
 
-let SetAppsetting auth (rg: ResourceGroup) name key value =
+let SetAppSettings
+  auth (rg: ResourceGroup) name (settings: (string * string) list) =
   sprintf 
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/config/appsettings?api-version=2015-08-01"
     auth.SubscriptionID
     rg.Name
     name
   |> put auth.Token (
+    let props =
+      settings
+      |> List.map (fun (key, value) ->
+        sprintf
+          "%s: %s"
+          (JsonConvert.ToString(key))
+          (JsonConvert.ToString(value))
+        )
+      |> String.concat ",\n    "
+
     sprintf """
 {
   "properties": {
-    "%s": "%s"
+    %s
   }
 }
 """
-      key value
+      props
     )
   |> parseResponse
 
 let CreateFunctionApp auth (rg: ResourceGroup) (plan: AppServicePlan) name =
   AppServiceUri auth.SubscriptionID rg.Name name
   |> put auth.Token (
-      sprintf """
+    sprintf """
 {
   "kind": "functionapp",
   "location": "%s",
   "properties": { "serverFarmId": "%s" }
 }
 """
-        rg.Location
-        plan.Name)
+      rg.Location
+      plan.Name)
   |> parseResponse
 
 let StartFunctionApp auth (rg: ResourceGroup) name =
@@ -234,16 +313,16 @@ let StartFunctionApp auth (rg: ResourceGroup) name =
   |> post auth.Token ""
   |> parseResponse
 
-let RestartFunctionApp auth (rg: ResourceGroup) name =
+let StopFunctionApp auth (rg: ResourceGroup) name =
   sprintf
-    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/restart?api-version=2015-08-01"
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/stop?api-version=2015-08-01"
     auth.SubscriptionID rg.Name name
   |> post auth.Token ""
   |> parseResponse
 
-let StopFunctionApp auth (rg: ResourceGroup) name =
+let RestartFunctionApp auth (rg: ResourceGroup) name =
   sprintf
-    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/stop?api-version=2015-08-01"
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/restart?api-version=2015-08-01"
     auth.SubscriptionID rg.Name name
   |> post auth.Token ""
   |> parseResponse

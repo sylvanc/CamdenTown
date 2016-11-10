@@ -1,9 +1,14 @@
 FRAMEWORK: >= NET46
 NUGET
   remote: https://www.nuget.org/api/v2
+    Dynamitey (1.0.2)
     FSharp.Compiler.Service (8.0)
       System.Collections.Immutable (>= 1.2)
       System.Reflection.Metadata (>= 1.4.1-beta-24227-04)
+    FSharp.Core (4.0.0.1)
+    FSharp.Interop.Dynamic (3.0)
+      Dynamitey (>= 1.0.2)
+      FSharp.Core (>= 3.1.2.1)
     FsPickler (3.2)
     Microsoft.Azure.KeyVault.Core (1.0)
     Microsoft.Azure.WebJobs (2.0.0-beta1)

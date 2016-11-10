@@ -1,4 +1,4 @@
 .paket/
 packages/
 build/
-creds.fsx
+creds-private.fsx
