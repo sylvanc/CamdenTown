@@ -70,32 +70,49 @@ type ManualTriggerAttribute(name: string) =
         ])
     ]
 
-type QueueAttribute = LiteralAttribute
+type Queue<'T>() =
+  static member private Bind = typeof<'T>
 
 [<AttributeUsage(AttributeTargets.Method)>]
-type QueueTriggerAttribute(ty: Type, queueName: string, name: string) =
+type QueueTriggerAttribute(ty: Type, name: string) =
   inherit TriggerAttribute()
-  new (ty, queueName) = QueueTriggerAttribute(ty, queueName, "input")
+  new (ty) = QueueTriggerAttribute(ty, "input")
 
   override __.Check m =
-    [ DNSName queueName
-      ( if
-          ( [ typeof<string>
-              typeof<byte []>
-              typeof<obj>
-            ]
-            |> List.contains ty)
-          ||
-          ( ty.GetCustomAttributes()
-            |> Seq.exists (function
-              | :? CLIMutableAttribute -> true
-              | _ -> false))
+    [ ( if
+          ty.BaseType.GetGenericTypeDefinition() <>
+          typeof<Queue<_>>.GetGenericTypeDefinition()
         then
-          None, []
+          None, ["The queue must be derived from Queue<_>"]
         else
-          None, ["The queue trigger input type must be a string, byte[], obj, or CLIMutable"]
+          None, []
       )
-      Param m name [ty]
+      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
+          let t = ty.BaseType.GenericTypeArguments.[0]
+          if
+            ( [ typeof<string>
+                typeof<byte []>
+                typeof<obj>
+              ]
+              |> List.contains t)
+            ||
+            ( t.GetCustomAttributes()
+              |> Seq.exists (function
+                | :? CLIMutableAttribute -> true
+                | _ -> false))
+          then
+            None, []
+          else
+            None, ["The queue trigger input type must be a string, byte[], obj, or CLIMutable record type"]
+        else
+          None, []
+      )
+      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
+          Param m name [ty.BaseType.GenericTypeArguments.[0]]
+        else
+          None, []
+      )
+      DNSName ty.Name
       OptParam m "expirationTime" [typeof<DateTimeOffset>]
       OptParam m "insertionTime" [typeof<DateTimeOffset>]
       OptParam m "nextVisisbleTime" [typeof<DateTimeOffset>]
@@ -108,7 +125,7 @@ type QueueTriggerAttribute(ty: Type, queueName: string, name: string) =
   override __.Json () =
     [ new JObject(
         [ JProperty("type", "queueTrigger")
-          JProperty("queueName", queueName)
+          JProperty("queueName", ty.Name)
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
           JProperty("direction", "in")
@@ -116,36 +133,53 @@ type QueueTriggerAttribute(ty: Type, queueName: string, name: string) =
     ]
 
 [<AttributeUsage(AttributeTargets.Method)>]
-type QueueResultAttribute(ty: Type, queueName: string) =
+type QueueResultAttribute(ty: Type) =
   inherit ResultAttribute()
 
   override __.Check m =
-    [ DNSName queueName
-      ( if
-          ( [ typeof<string>
-              typeof<byte []>
-              typeof<obj>
-            ]
-            |> List.contains ty)
-          ||
-          (ty.IsSubclassOf typeof<obj>)
+    [ ( if
+          ty.BaseType.GetGenericTypeDefinition() <>
+          typeof<Queue<_>>.GetGenericTypeDefinition()
         then
-          None, []
+          None, ["The queue must be derived from Queue<_>"]
         else
-          None, ["The queue result output type must be a string, a byte [], or an object type"]
+          None, []
       )
-      Result m (
-        [ [ty]
-          TypesCollector [ty]
-          TypesAsyncCollector [ty]
-        ] |> List.concat
-        )
+      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
+          let t = ty.BaseType.GenericTypeArguments.[0]
+          if
+            ( [ typeof<string>
+                typeof<byte []>
+                typeof<obj>
+              ]
+              |> List.contains t)
+            ||
+            (t.IsSubclassOf typeof<obj>)
+          then
+            None, []
+          else
+            None, ["The queue result output type must be a string, a byte [], or an object type"]
+        else
+          None, []
+      )
+      DNSName ty.Name
+      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
+          Result m (
+            let t = [ty.BaseType.GenericTypeArguments.[0]]
+            [ t
+              TypesCollector t
+              TypesAsyncCollector t
+            ] |> List.concat
+            )
+        else
+          None, []
+      )
     ]
 
   override __.Json () =
     [ JObject(
         [ JProperty("type", "queue")
-          JProperty("queueName", queueName)
+          JProperty("queueName", ty.Name)
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", "$return")
           JProperty("direction", "out")

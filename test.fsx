@@ -49,29 +49,28 @@ let HttpClosure(req: HttpRequestMessage, log: TraceWriter) =
     return resp
   } |> Async.StartAsTask
 
-[<Queue>]
-let queue1 = "queue1"
-
-[<Queue>]
-let queue2 = "queue2"
-
 [<CLIMutable>]
 type Foo = {
   Name: string
   Food: string
 }
 
-[<QueueTrigger(typeof<Foo>, queue1)>]
-[<QueueResult(typeof<Foo>, queue2)>]
+type Queue1() = inherit Queue<Foo>()
+type Queue2() = inherit Queue<Foo>()
+
+[<QueueTrigger(typeof<Queue1>)>]
+[<QueueResult(typeof<Queue2>)>]
 let QueueHandler(input: Foo, log: TraceWriter) =
   async {
     log.Error(sprintf "%s likes %s" input.Name input.Food)
     return { Name = "Bob " + input.Name; Food = input.Food + " and cheese" }
   } |> Async.StartAsTask
 
-[<QueueTrigger(typeof<Foo>, queue2)>]
+[<QueueTrigger(typeof<Queue2>)>]
 let QueueSecond(input: Foo, log: TraceWriter) =
   log.Error(sprintf "%s likes %s" input.Name input.Food)
+
+CamdenTown.Compile.Compiler.Check [ QueueHandler; QueueSecond ]
 
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
