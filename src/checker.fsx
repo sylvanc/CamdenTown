@@ -90,7 +90,10 @@ let Unbound (m: MethodInfo) ps =
   |> List.ofArray
 
 let DNSName (name: string) =
-  let alphanumeric (c: char) = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+  let alphanumeric (c: char) =
+    (c >= 'A' && c <= 'Z') ||
+    (c >= 'a' && c <= 'z') ||
+    (c >= '0' && c <= '9')
   let validdns (c: char) = (c = '-') || alphanumeric c
 
   if

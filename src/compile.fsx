@@ -29,7 +29,7 @@ module private Helpers =
     elif t.IsArray then
       sprintf "%s []" (typeName (t.GetElementType()))
     elif t.IsGenericType then
-      let name = t.FullName
+      let name = t.FullName.Replace("+", ".")
       let tick = name.IndexOf '`'
       sprintf "%s<%s>"
         ( if tick > 0 then name.Remove tick else name )
@@ -38,7 +38,7 @@ module private Helpers =
           |> String.concat ", "
         )
     else
-      t.FullName
+      t.FullName.Replace("+", ".")
 
   let replace (pattern: string) (replacement: string) (source: string) =
     source.Replace(pattern, replacement)
@@ -52,9 +52,7 @@ module private Helpers =
 #r "../../../packages/Microsoft.Azure.WebJobs/lib/net45/Microsoft.Azure.WebJobs.Host.dll"
 #r "../../../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45/Microsoft.Azure.WebJobs.Extensions.dll"
 
-#r "FsPickler.dll"
-#r "Mono.Cecil.dll"
-#r "Vagabond.dll"
+[[ASSEMBLIES]]
 
 open System.IO
 open System.Reflection
@@ -115,8 +113,14 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
         (argtypes |> String.concat " * ")
         (typeName mi.ReturnType)
 
+    let assemblies =
+      Directory.GetFiles(localDir, "*.dll")
+      |> Array.map (fun dll -> sprintf "#r \"%s\"" (Path.GetFileName(dll)))
+      |> String.concat "\n"
+
     let dllSource =
       dllTemplate
+      |> replace "[[ASSEMBLIES]]" assemblies
       |> replace "[[FUNCNAME]]" mi.Name
       |> replace "[[FUNCTYPE]]" functype
       |> replace "[[PARAMETERS]]"
@@ -158,6 +162,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
     let template =
         """
+[[ASSEMBLIES]]
 #r "[[DLLNAME]]"
 
 let Run([[PARAMETERS]]) =
@@ -166,6 +171,7 @@ let Run([[PARAMETERS]]) =
 
     let source =
       template
+      |> replace "[[ASSEMBLIES]]" assemblies
       |> replace "[[DLLNAME]]" (Path.GetFileName(dllName))
       |> replace "[[FUNCNAME]]" mi.Name
       |> replace "[[PARAMETERS]]" (ps |> String.concat ", ")

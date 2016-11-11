@@ -50,24 +50,28 @@ let HttpClosure(req: HttpRequestMessage, log: TraceWriter) =
   } |> Async.StartAsTask
 
 [<Queue>]
-let inQ = "in-queue"
+let queue1 = "queue1"
 
 [<Queue>]
-let outQ = "out-queue"
+let queue2 = "queue2"
 
 [<CLIMutable>]
 type Foo = {
   Name: string
+  Food: string
 }
 
-[<QueueTrigger(typeof<Foo>, inQ)>]
-[<QueueResult(typeof<Foo>, outQ)>]
-let QueueHandler(input: Foo) =
+[<QueueTrigger(typeof<Foo>, queue1)>]
+[<QueueResult(typeof<Foo>, queue2)>]
+let QueueHandler(input: Foo, log: TraceWriter) =
   async {
-    return { Name = "Processed: " + input.Name }
+    log.Error(sprintf "%s likes %s" input.Name input.Food)
+    return { Name = "Bob " + input.Name; Food = input.Food + " and cheese" }
   } |> Async.StartAsTask
 
-CamdenTown.Compile.Compiler.Check [QueueHandler]
+[<QueueTrigger(typeof<Foo>, queue2)>]
+let QueueSecond(input: Foo, log: TraceWriter) =
+  log.Error(sprintf "%s likes %s" input.Name input.Food)
 
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
@@ -87,6 +91,7 @@ let TimerToLog(timer: TimerInfo, log: TraceWriter) =
 // set log level on webapp
 // stream log
 
+app.Deploy [ QueueHandler; QueueSecond ]
 app.Deploy [ TimerToLog ]
 app.Deploy [ HttpClosure ]
 app.Undeploy [ TimerToLog ]
