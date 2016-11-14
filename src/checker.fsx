@@ -7,6 +7,7 @@ module CamdenTown.Checker
 open System
 open System.Reflection
 open System.Threading.Tasks
+open FSharp.Reflection
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
 
@@ -43,6 +44,28 @@ let private _param (m: MethodInfo) name (types: Type list) optional =
     Some name, [nameErr(); typeErr()]
   | None ->
     None, []
+
+let NamedType name ty =
+  if FSharpType.IsUnion ty then
+    let cases = FSharpType.GetUnionCases ty
+
+    if cases.Length = 1 then
+      let case = cases.[0]
+
+      if case.Name = name then
+        let fields = case.GetFields()
+
+        if fields.Length = 1 then
+          let p = fields.[0]
+          Some p.PropertyType
+        else
+          None
+      else
+        None
+    else
+      None
+  else
+    None
 
 let BoundTypes (ty: Type) (types: Type list) =
   let generic = ty.GetGenericTypeDefinition()

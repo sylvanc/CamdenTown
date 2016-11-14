@@ -4,7 +4,6 @@
 open System
 open System.Net
 open System.Net.Http
-open System.Threading.Tasks
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
 
@@ -55,8 +54,8 @@ type Foo = {
   Food: string
 }
 
-type Queue1() = inherit Queue<Foo>()
-type Queue2() = inherit Queue<Foo>()
+type Queue1 = Queue of Foo
+type Queue2 = Queue of Foo
 
 [<QueueTrigger(typeof<Queue1>)>]
 [<QueueResult(typeof<Queue2>)>]
@@ -69,8 +68,6 @@ let QueueHandler(input: Foo, log: TraceWriter) =
 [<QueueTrigger(typeof<Queue2>)>]
 let QueueSecond(input: Foo, log: TraceWriter) =
   log.Error(sprintf "%s likes %s" input.Name input.Food)
-
-CamdenTown.Compile.Compiler.Check [ QueueHandler; QueueSecond ]
 
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
@@ -91,6 +88,8 @@ let TimerToLog(timer: TimerInfo, log: TraceWriter) =
 // stream log
 
 app.Deploy [ QueueHandler; QueueSecond ]
+app.Undeploy [ QueueHandler; QueueSecond ]
+
 app.Deploy [ TimerToLog ]
 app.Deploy [ HttpClosure ]
 app.Undeploy [ TimerToLog ]

@@ -79,24 +79,19 @@ type QueueTriggerAttribute(ty: Type, name: string) =
   new (ty) = QueueTriggerAttribute(ty, "input")
 
   override __.Check m =
-    [ ( if
-          ty.BaseType.GetGenericTypeDefinition() <>
-          typeof<Queue<_>>.GetGenericTypeDefinition()
-        then
-          None, ["The queue must be derived from Queue<_>"]
+    let qType = NamedType "Queue" ty
+
+    [ ( if qType.IsNone then
+          None, ["The queue must be some Queue of 'T"]
         else
-          None, []
-      )
-      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
-          let t = ty.BaseType.GenericTypeArguments.[0]
           if
             ( [ typeof<string>
                 typeof<byte []>
                 typeof<obj>
               ]
-              |> List.contains t)
+              |> List.contains qType.Value)
             ||
-            ( t.GetCustomAttributes()
+            ( qType.Value.GetCustomAttributes()
               |> Seq.exists (function
                 | :? CLIMutableAttribute -> true
                 | _ -> false))
@@ -104,11 +99,9 @@ type QueueTriggerAttribute(ty: Type, name: string) =
             None, []
           else
             None, ["The queue trigger input type must be a string, byte[], obj, or CLIMutable record type"]
-        else
-          None, []
       )
-      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
-          Param m name [ty.BaseType.GenericTypeArguments.[0]]
+      ( if qType.IsSome then
+          Param m name [qType.Value]
         else
           None, []
       )
@@ -137,24 +130,22 @@ type QueueResultAttribute(ty: Type) =
   inherit ResultAttribute()
 
   override __.Check m =
-    [ ( if
-          ty.BaseType.GetGenericTypeDefinition() <>
-          typeof<Queue<_>>.GetGenericTypeDefinition()
-        then
-          None, ["The queue must be derived from Queue<_>"]
+    let qType = NamedType "Queue" ty
+
+    [ ( if qType.IsNone then
+          None, ["The queue must be some Queue of 'T"]
         else
           None, []
       )
-      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
-          let t = ty.BaseType.GenericTypeArguments.[0]
+      ( if qType.IsSome then
           if
             ( [ typeof<string>
                 typeof<byte []>
                 typeof<obj>
               ]
-              |> List.contains t)
+              |> List.contains qType.Value)
             ||
-            (t.IsSubclassOf typeof<obj>)
+            (qType.Value.IsSubclassOf typeof<obj>)
           then
             None, []
           else
@@ -163,9 +154,9 @@ type QueueResultAttribute(ty: Type) =
           None, []
       )
       DNSName ty.Name
-      ( if ty.BaseType.GenericTypeArguments.Length > 0 then
+      ( if qType.IsSome then
           Result m (
-            let t = [ty.BaseType.GenericTypeArguments.[0]]
+            let t = [qType.Value]
             [ t
               TypesCollector t
               TypesAsyncCollector t
