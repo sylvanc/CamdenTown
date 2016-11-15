@@ -11,17 +11,38 @@ open FSharp.Reflection
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
 
+let rec TypeName (t: Type) =
+  if (t = typeof<unit>) || (t = typeof<System.Void>) then
+    "unit"
+  elif t.IsArray then
+    sprintf "%s []" (TypeName (t.GetElementType()))
+  elif t.IsGenericType then
+    let name = t.FullName.Replace("+", ".")
+    let tick = name.IndexOf '`'
+    sprintf "%s<%s>"
+      ( if tick > 0 then name.Remove tick else name )
+      ( t.GetGenericArguments()
+        |> Array.map TypeName
+        |> String.concat ", "
+      )
+  else
+    t.FullName.Replace("+", ".")
+
 let private typeList (types: Type list) =
   sprintf
     "%s %s"
     (if types.Length > 1 then "one of" else "a")
     ( types
-      |> List.map (fun t -> t.Name)
+      |> List.map TypeName
       |> String.concat ", ")
 
 let private typeInList t (types: Type list) =
-  types
-  |> List.contains t
+  if t = typeof<System.Void> then
+    types
+    |> List.contains typeof<unit>
+  else
+    types
+    |> List.contains t
 
 let private _param (m: MethodInfo) name (types: Type list) optional =
   let nameErr () =
@@ -72,7 +93,10 @@ let BoundTypes (ty: Type) (types: Type list) =
 
   types
   |> List.collect (fun t ->
-    [ t; generic.MakeGenericType [| t |] ]
+    if (t = typeof<System.Void>) || (t = typeof<unit>) then
+      [ t ]
+    else
+      [ t; generic.MakeGenericType [| t |] ]
     )
 
 let TypesAsync (types: Type list) =
@@ -90,12 +114,15 @@ let Param (m: MethodInfo) name (types: Type list) =
 let OptParam (m: MethodInfo) name (types: Type list) =
   _param m name types true
 
+let ExistsParam (m: MethodInfo) name (types: Type list) =
+  None, snd (Param m name types)
+
 let Result (m: MethodInfo) (types: Type list) =
   let taskTypes = TypesAsync types
   if not (taskTypes |> typeInList m.ReturnType) then
-    None, [sprintf "Return type must be %s" (typeList taskTypes)]
+    Some "$return", [sprintf "Return type must be %s" (typeList taskTypes)]
   else
-    None, []
+    Some "$return", []
 
 let Log (m: MethodInfo) =
   match
@@ -106,11 +133,25 @@ let Log (m: MethodInfo) =
   | Some p -> Some p.Name
   | None -> None
 
+let Multibound (ps: string list) =
+  ps
+  |> List.countBy id
+  |> List.choose (fun (p, count) ->
+    if count > 1 then Some(p, count) else None)
+  |> List.map (fun (p, count) ->
+    sprintf "Parameter '%s' is bound %d times" p count)
+
 let Unbound (m: MethodInfo) ps =
   m.GetParameters()
   |> Array.filter (fun p -> not (List.contains p.Name ps))
   |> Array.map (fun p -> sprintf "Parameter '%s' is not bound" p.Name)
   |> List.ofArray
+
+let UnboundResult (m: MethodInfo) ps =
+  if not (List.contains "$return" ps) then
+    snd (Result m [typeof<unit>])
+  else
+    []
 
 let DNSName (name: string) =
   let alphanumeric (c: char) =

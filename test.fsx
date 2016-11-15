@@ -58,7 +58,7 @@ type Queue1 = Queue of Foo
 type Queue2 = Queue of Foo
 
 [<QueueTrigger(typeof<Queue1>)>]
-[<QueueResult(typeof<Queue2>)>]
+[<QueueOutput(typeof<Queue2>)>]
 let QueueHandler(input: Foo, log: TraceWriter) =
   async {
     log.Error(sprintf "%s likes %s" input.Name input.Food)
@@ -68,6 +68,8 @@ let QueueHandler(input: Foo, log: TraceWriter) =
 [<QueueTrigger(typeof<Queue2>)>]
 let QueueSecond(input: Foo, log: TraceWriter) =
   log.Error(sprintf "%s likes %s" input.Name input.Food)
+
+CamdenTown.Compile.Compiler.Check [QueueSecond]
 
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
@@ -96,3 +98,15 @@ app.Undeploy [ TimerToLog ]
 app.Undeploy [ HttpClosure ]
 app.Restart()
 app.Delete()
+
+// TODO: FaceLocator in CamdenTown
+// check into a samples directory
+// _maybe_ draw the rectangles on the images
+// image comparison?
+
+// TEST:
+// queue out not via $return
+// blob trigger
+// blob in
+// blob out via $return
+// blob out not via $return

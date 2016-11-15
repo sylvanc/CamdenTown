@@ -23,23 +23,6 @@ open CamdenTown.Attributes
 open CamdenTown.Checker
 
 module private Helpers =
-  let rec typeName (t: Type) =
-    if t = typeof<System.Void> then
-      "unit"
-    elif t.IsArray then
-      sprintf "%s []" (typeName (t.GetElementType()))
-    elif t.IsGenericType then
-      let name = t.FullName.Replace("+", ".")
-      let tick = name.IndexOf '`'
-      sprintf "%s<%s>"
-        ( if tick > 0 then name.Remove tick else name )
-        ( t.GetGenericArguments()
-          |> Array.map typeName
-          |> String.concat ", "
-        )
-    else
-      t.FullName.Replace("+", ".")
-
   let replace (pattern: string) (replacement: string) (source: string) =
     source.Replace(pattern, replacement)
 
@@ -103,7 +86,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
     let (argtypes, ps, args) =
       mi.GetParameters()
       |> Array.map (fun param ->
-        let ty = typeName param.ParameterType
+        let ty = TypeName param.ParameterType
         ty, sprintf "%s: %s" param.Name ty, param.Name)
       |> Array.unzip3
 
@@ -111,11 +94,11 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
       sprintf
         "%s -> %s"
         (argtypes |> String.concat " * ")
-        (typeName mi.ReturnType)
+        (TypeName mi.ReturnType)
 
     let assemblies =
       Directory.GetFiles(localDir, "*.dll")
-      |> Array.map (fun dll -> sprintf "#r \"%s\"" (Path.GetFileName(dll)))
+      |> Array.map (Path.GetFileName >> sprintf "#r \"%s\"")
       |> String.concat "\n"
 
     let dllSource =
@@ -201,7 +184,11 @@ let Run([[PARAMETERS]]) =
       |> List.unzip
 
     let ps = (Log mi)::psList |> List.choose id
-    (Unbound mi ps)::errorsList |> List.concat
+    (Multibound ps)::
+    (Unbound mi ps)::
+    (UnboundResult mi ps)::
+    errorsList
+    |> List.concat
 
   let compileTrigger dir x (mi: MethodInfo) (attrs: AzureAttribute list) =
     let localDir = sprintf "%s/%s" dir mi.Name
@@ -259,21 +246,6 @@ let Run([[PARAMETERS]]) =
 
     localDir, attrs |> List.collect (fun attr -> attr.Build localDir)
 
-  let getResultAttrs (attrs: AzureAttribute []) =
-    let resultAttrs =
-      attrs
-      |> Array.choose (fun attr ->
-        match attr with
-        | :? ResultAttribute -> Some(attr)
-        | :? ComplexAttribute -> Some(attr)
-        | _ -> None
-        )
-
-    if resultAttrs.Length = 0 then
-      [| NoResultAttribute() :> AzureAttribute |]
-    else
-      resultAttrs
-
   let getAttrs (mi: MethodInfo) =
     let azureAttrs =
       mi.GetCustomAttributes(false)
@@ -287,23 +259,14 @@ let Run([[PARAMETERS]]) =
       |> Array.choose (fun attr ->
         match attr with
         | :? TriggerAttribute -> Some(attr)
-        | :? ComplexAttribute -> Some(attr)
         | _ -> None
         )
 
-    let resultAttrs = getResultAttrs azureAttrs
-
-    let triggerErrors =
-      match triggerAttrs.Length with
-      | 0 -> ["Function has no Trigger attribute"]
-      | 1 -> []
-      | _ -> ["Function has more than one Trigger attribute"]
-
     let errors =
-      if resultAttrs.Length > 1 then
-        "Function has more than one Result attribute"::triggerErrors
-      else
-        triggerErrors
+      match triggerAttrs.Length with
+      | 0 -> ["Function has no trigger attribute"]
+      | 1 -> []
+      | _ -> ["Function has more than one trigger attribute"]
 
     mi, List.ofArray azureAttrs, errors
 

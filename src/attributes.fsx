@@ -9,6 +9,7 @@ open System
 open System.IO
 open System.Reflection
 open System.Net.Http
+open System.Text.RegularExpressions
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
 open Newtonsoft.Json.Linq
@@ -20,28 +21,15 @@ open CamdenTown.Checker
 type AzureAttribute() =
   inherit Attribute()
   abstract member Check: MethodInfo -> (string option * string list) list
-  default __.Check(mi) = []
+  default __.Check mi = []
   abstract member Json: unit -> JObject list
-  default __.Json() = []
+  default __.Json () = []
   abstract member Build: string -> string list
   default __.Build(dir) = []
 
 [<AbstractClass>]
 type TriggerAttribute() =
   inherit AzureAttribute()
-
-[<AbstractClass>]
-type ResultAttribute() =
-  inherit AzureAttribute()
-
-[<AbstractClass>]
-type ComplexAttribute() =
-  inherit AzureAttribute()
-
-[<AttributeUsage(AttributeTargets.Method)>]
-type NoResultAttribute() =
-  inherit ResultAttribute()
-  override __.Check m = [Result m [typeof<unit>]]
 
 [<AttributeUsage(AttributeTargets.Method)>]
 type ReferencesAttribute(refs: string [], path: string) =
@@ -60,7 +48,7 @@ type ManualTriggerAttribute(name: string) =
   inherit TriggerAttribute()
   new () = ManualTriggerAttribute("input")
 
-  override __.Check m = [Param m name [typeof<string>]]
+  override __.Check mi = [Param mi name [typeof<string>]]
 
   override __.Json () =
     [ new JObject(
@@ -78,7 +66,7 @@ type QueueTriggerAttribute(ty: Type, name: string) =
   inherit TriggerAttribute()
   new (ty) = QueueTriggerAttribute(ty, "input")
 
-  override __.Check m =
+  override __.Check mi =
     let qType = NamedType "Queue" ty
 
     [ ( if qType.IsNone then
@@ -101,18 +89,18 @@ type QueueTriggerAttribute(ty: Type, name: string) =
             None, ["The queue trigger input type must be a string, byte[], obj, or CLIMutable record type"]
       )
       ( if qType.IsSome then
-          Param m name [qType.Value]
+          Param mi name [qType.Value]
         else
           None, []
       )
       DNSName ty.Name
-      OptParam m "expirationTime" [typeof<DateTimeOffset>]
-      OptParam m "insertionTime" [typeof<DateTimeOffset>]
-      OptParam m "nextVisisbleTime" [typeof<DateTimeOffset>]
-      OptParam m "queueTrigger" [typeof<string>]
-      OptParam m "id" [typeof<string>]
-      OptParam m "popReceipt" [typeof<string>]
-      OptParam m "dequeueCount" [typeof<int>]
+      OptParam mi "expirationTime" [typeof<DateTimeOffset>]
+      OptParam mi "insertionTime" [typeof<DateTimeOffset>]
+      OptParam mi "nextVisisbleTime" [typeof<DateTimeOffset>]
+      OptParam mi "queueTrigger" [typeof<string>]
+      OptParam mi "id" [typeof<string>]
+      OptParam mi "popReceipt" [typeof<string>]
+      OptParam mi "dequeueCount" [typeof<int>]
     ]
 
   override __.Json () =
@@ -126,10 +114,11 @@ type QueueTriggerAttribute(ty: Type, name: string) =
     ]
 
 [<AttributeUsage(AttributeTargets.Method)>]
-type QueueResultAttribute(ty: Type) =
-  inherit ResultAttribute()
+type QueueOutputAttribute(ty: Type, name: string) =
+  inherit AzureAttribute()
+  new (ty) = QueueOutputAttribute(ty, "$return")
 
-  override __.Check m =
+  override __.Check mi =
     let qType = NamedType "Queue" ty
 
     [ ( if qType.IsNone then
@@ -149,19 +138,25 @@ type QueueResultAttribute(ty: Type) =
           then
             None, []
           else
-            None, ["The queue result output type must be a string, a byte [], or an object type"]
+            None, ["The queue output type must be a string, a byte [], or an object type"]
         else
           None, []
       )
       DNSName ty.Name
       ( if qType.IsSome then
-          Result m (
-            let t = [qType.Value]
-            [ t
-              TypesCollector t
-              TypesAsyncCollector t
-            ] |> List.concat
-            )
+          let t = [qType.Value]
+
+          if name = "$return" then
+            Result mi (
+              [ t
+                TypesCollector t
+                TypesAsyncCollector t
+              ] |> List.concat)
+          else
+            Param mi name (
+              [ TypesCollector t
+                TypesAsyncCollector t
+              ] |> List.concat)
         else
           None, []
       )
@@ -172,7 +167,7 @@ type QueueResultAttribute(ty: Type) =
         [ JProperty("type", "queue")
           JProperty("queueName", ty.Name)
           JProperty("connection", "AzureWebJobsStorage")
-          JProperty("name", "$return")
+          JProperty("name", name)
           JProperty("direction", "out")
         ])
     ]
@@ -181,7 +176,7 @@ type QueueResultAttribute(ty: Type) =
 type TimerTriggerAttribute(schedule: string, name: string) =
   inherit TriggerAttribute()
   new (schedule) = TimerTriggerAttribute(schedule, "timer")
-  override __.Check m = [Param m name [typeof<TimerInfo>]]
+  override __.Check mi = [Param mi name [typeof<TimerInfo>]]
 
   override __.Json () =
     [ new JObject(
@@ -194,12 +189,12 @@ type TimerTriggerAttribute(schedule: string, name: string) =
 
 [<AttributeUsage(AttributeTargets.Method)>]
 type HttpTriggerAttribute(name: string) =
-  inherit ComplexAttribute()
+  inherit TriggerAttribute()
   new () = HttpTriggerAttribute("req")
 
-  override __.Check m =
-    [ Param m name [typeof<HttpRequestMessage>]
-      Result m [typeof<HttpResponseMessage>]
+  override __.Check mi =
+    [ Param mi name [typeof<HttpRequestMessage>]
+      Result mi [typeof<HttpResponseMessage>]
     ]
 
   override __.Json () =
@@ -213,6 +208,201 @@ type HttpTriggerAttribute(name: string) =
       new JObject(
         [ JProperty("type", "http")
           JProperty("name", "unused")
+          JProperty("direction", "out")
+        ])
+    ]
+
+[<AttributeUsage(AttributeTargets.Method)>]
+type BlobTriggerAttribute(ty: Type, path: string, name: string) =
+  inherit TriggerAttribute()
+
+  let re =
+    Regex(
+      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
+      )
+
+  new (ty, path) = BlobTriggerAttribute(ty, "input")
+
+  override __.Check mi =
+    let qType = NamedType "Blob" ty
+
+    List.append
+      [ ( if qType.IsNone then
+            None, ["The blob must be some Blob of 'T"]
+          else
+            if
+              ( [ typeof<Stream>
+                  typeof<TextReader>
+                  typeof<string>
+                  typeof<obj>
+                ]
+                |> List.contains qType.Value)
+              ||
+              ( qType.Value.GetCustomAttributes()
+                |> Seq.exists (function
+                  | :? CLIMutableAttribute -> true
+                  | _ -> false))
+            then
+              None, []
+            else
+              None, ["The blob trigger input type must be a Stream, TextReader, string, obj, or CLIMutable record type"]
+        )
+        ( if qType.IsSome then
+            Param mi name [qType.Value]
+          else
+            None, []
+        )
+        DNSName ty.Name
+      ]
+      ( // Bind path variables to method parameters.
+        re.Matches path
+        |> Seq.cast
+        |> Seq.map (fun (m: Match) ->
+          Param mi (m.Groups.[1].Value) [typeof<string>]
+          )
+        |> List.ofSeq
+      )
+
+  override __.Json () =
+    [ new JObject(
+        [ JProperty("type", "blobTrigger")
+          JProperty("connection", "AzureWebJobsStorage")
+          JProperty("name", name)
+          JProperty("path", path)
+          JProperty("direction", "in")
+        ])
+    ]
+
+[<AttributeUsage(AttributeTargets.Method)>]
+type BlobInputAttribute(ty: Type, path: string, name: string) =
+  inherit TriggerAttribute()
+
+  let re =
+    Regex(
+      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
+      )
+
+  new (ty, path) = BlobInputAttribute(ty, "input")
+
+  override __.Check mi =
+    let qType = NamedType "Blob" ty
+
+    List.append
+      [ ( if qType.IsNone then
+            None, ["The blob must be some Blob of 'T"]
+          else
+            if
+              ( [ typeof<Stream>
+                  typeof<TextReader>
+                  typeof<string>
+                  typeof<obj>
+                ]
+                |> List.contains qType.Value)
+              ||
+              ( qType.Value.GetCustomAttributes()
+                |> Seq.exists (function
+                  | :? CLIMutableAttribute -> true
+                  | _ -> false))
+            then
+              None, []
+            else
+              None, ["The blob input type must be a Stream, TextReader, string, obj, or CLIMutable record type"]
+        )
+        ( if qType.IsSome then
+            Param mi name [qType.Value]
+          else
+            None, []
+        )
+        DNSName ty.Name
+      ]
+      ( // Check that path variables exist as method parameters.
+        re.Matches path
+        |> Seq.cast
+        |> Seq.map (fun (m: Match) ->
+          ExistsParam mi (m.Groups.[1].Value) [typeof<string>]
+          )
+        |> List.ofSeq
+      )
+
+  override __.Json () =
+    [ new JObject(
+        [ JProperty("type", "blob")
+          JProperty("connection", "AzureWebJobsStorage")
+          JProperty("name", name)
+          JProperty("path", path)
+          JProperty("direction", "in")
+        ])
+    ]
+
+[<AttributeUsage(AttributeTargets.Method)>]
+type BlobOutputAttribute(ty: Type, path: string, name: string) =
+  inherit TriggerAttribute()
+
+  let re =
+    Regex(
+      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
+      )
+
+  new (ty, path) = BlobOutputAttribute(ty, "$return")
+
+  override __.Check mi =
+    let qType = NamedType "Blob" ty
+
+    List.append
+      [ ( if qType.IsNone then
+            None, ["The blob must be some Blob of 'T"]
+          else
+            if
+              ( [ typeof<Stream>
+                  typeof<TextReader>
+                  typeof<string>
+                  typeof<obj>
+                ]
+                |> List.contains qType.Value)
+              ||
+              ( qType.Value.GetCustomAttributes()
+                |> Seq.exists (function
+                  | :? CLIMutableAttribute -> true
+                  | _ -> false))
+            then
+              None, []
+            else
+              None, ["The blob output type must be a Stream, TextReader, string, obj, or CLIMutable record type"]
+        )
+        ( if qType.IsSome then
+            let t = [qType.Value]
+
+            if name = "$return" then
+              Result mi (
+                [ t
+                  TypesCollector t
+                  TypesAsyncCollector t
+                ] |> List.concat)
+            else
+              Param mi name (
+                [ TypesCollector t
+                  TypesAsyncCollector t
+                ] |> List.concat)
+          else
+            None, []
+        )
+        DNSName ty.Name
+      ]
+      ( // Check that path variables exist as method parameters.
+        re.Matches path
+        |> Seq.cast
+        |> Seq.map (fun (m: Match) ->
+          ExistsParam mi (m.Groups.[1].Value) [typeof<string>]
+          )
+        |> List.ofSeq
+      )
+
+  override __.Json () =
+    [ new JObject(
+        [ JProperty("type", "blob")
+          JProperty("connection", "AzureWebJobsStorage")
+          JProperty("name", name)
+          JProperty("path", path)
           JProperty("direction", "out")
         ])
     ]

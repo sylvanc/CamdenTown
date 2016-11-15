@@ -33,7 +33,7 @@ type AzureFunctionApp
       SetAppSettings auth rg name
         [ "AzureWebJobsDashboard", connectionString
           "AzureWebJobsStorage", connectionString
-          "FUNCTIONS_EXTENSION_VERSION", "~0.9"
+          "FUNCTIONS_EXTENSION_VERSION", "~1.0"
           "AZUREJOBS_EXTENSION_VERSION", "beta"
           "WEBSITE_NODE_DEFAULT_VERSION", "4.1.2" ]
       )
