@@ -12,6 +12,9 @@ open CamdenTown.FunctionApp
 
 // Here we set up our Azure Function App
 let app = Creds.App()
+let logLevel = app.LogLevel()
+let log = app.Log()
+// log.Cancel()
 
 let numbers = [ for i in 1..10 -> i * i ]
 

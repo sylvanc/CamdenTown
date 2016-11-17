@@ -35,6 +35,13 @@ module private Helpers =
     return! client.GetAsync(uri) |> Async.AwaitTask
   }
 
+  let getStream token (uri: string) = async {
+    use client = makeClient token
+    return!
+      client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
+      |> Async.AwaitTask
+  }
+
   let post token data (uri: string) = async {
     use client = makeClient token
     let content = makeJson data
@@ -409,22 +416,44 @@ let KuduVfsMkdir auth path =
   |> parseResponse
 
 let KuduVfsPutDir auth target source =
-  let zip = source + ".zip"
-  if File.Exists(zip) then
+  async {
+    let zip = source + ".zip"
+    if File.Exists(zip) then
+      File.Delete(zip)
+    ZipFile.CreateFromDirectory(source, zip)
+    let! mkdirR = KuduVfsMkdir auth target
+
+    let uri =
+      sprintf
+        "https://%s.scm.azurewebsites.net/api/zip/%s"
+        auth.Name
+        target
+
+    use client = makeClient auth.Token
+    let data = File.ReadAllBytes(zip)
     File.Delete(zip)
-  ZipFile.CreateFromDirectory(source, zip)
-  KuduVfsMkdir auth target |> ignore
 
-  let uri =
-    sprintf
-      "https://%s.scm.azurewebsites.net/api/zip/%s"
-      auth.Name
-      target
+    return!
+      client.PutAsync(uri, new ByteArrayContent(data))
+      |> Async.AwaitTask
+      |> parseResponse
+  }
 
-  use client = makeClient auth.Token
-  let data = File.ReadAllBytes(zip)
-  File.Delete(zip)
+let KuduAppLog auth =
+  async {
+    let! resp =
+      sprintf
+        "https://%s.scm.azurewebsites.net/api/logstream/application"
+        auth.Name
+      |> getStream auth.Token
 
-  client.PutAsync(uri, new ByteArrayContent(data))
-  |> Async.AwaitTask
+    let! stream = resp.Content.ReadAsStreamAsync() |> Async.AwaitTask
+    return new StreamReader(stream)
+  }
+
+let KuduLogLevel auth =
+  sprintf
+    "https://%s.scm.azurewebsites.net/api/settings/trace_level"
+    auth.Name
+  |> get auth.Token
   |> parseResponse
