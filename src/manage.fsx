@@ -30,39 +30,27 @@ module private Helpers =
     content.Headers.ContentType.MediaType <- "application/json"
     content
 
-  let get token (uri: string) =
-    async {
-      use client = makeClient token
-      return!
-        client.GetAsync(uri)
-        |> Async.AwaitTask
-    } |> Async.RunSynchronously
+  let get token (uri: string) = async {
+    use client = makeClient token
+    return! client.GetAsync(uri) |> Async.AwaitTask
+  }
 
-  let post token data (uri: string) =
-    async {
-      use client = makeClient token
-      let content = makeJson data
-      return!
-        client.PostAsync(uri, content)
-        |> Async.AwaitTask
-    } |> Async.RunSynchronously
+  let post token data (uri: string) = async {
+    use client = makeClient token
+    let content = makeJson data
+    return! client.PostAsync(uri, content) |> Async.AwaitTask
+  }
 
-  let put token data (uri: string) =
-    async {
-      use client = makeClient token
-      let content = makeJson data
-      return!
-        client.PutAsync(uri, content)
-        |> Async.AwaitTask
-    } |> Async.RunSynchronously
+  let put token data (uri: string) = async {
+    use client = makeClient token
+    let content = makeJson data
+    return! client.PutAsync(uri, content) |> Async.AwaitTask
+  }
 
-  let delete token (uri: string) =
-    async {
-      use client = makeClient token
-      return!
-        client.DeleteAsync(uri)
-        |> Async.AwaitTask
-    } |> Async.RunSynchronously
+  let delete token (uri: string) = async {
+    use client = makeClient token
+    return! client.DeleteAsync(uri) |> Async.AwaitTask
+  }
 
   let ResourceGroupUri subscriptionId name =
     sprintf
@@ -90,18 +78,18 @@ module private Helpers =
       name
       path
 
-  let parseResponse (response: HttpResponseMessage) =
-    let resp =
-      async {
-        return!
-          response.Content.ReadAsStringAsync()
-          |> Async.AwaitTask
-      } |> Async.RunSynchronously
+  let parseResponse (response: Async<HttpResponseMessage>) =
+    async {
+      let! res = response
+      let! content =
+        res.Content.ReadAsStringAsync()
+        |> Async.AwaitTask
 
-    if response.IsSuccessStatusCode then
-      OK resp
-    else
-      Error(response.ReasonPhrase, resp)
+      if res.IsSuccessStatusCode then
+        return OK content
+      else
+        return Error(res.ReasonPhrase, content)
+    }
 
 open Helpers
 
@@ -133,37 +121,52 @@ type Auth = {
   SubscriptionID: string
 }
 
-let GetAuth (creds: Credentials) =
-  let r =
-    async {
-      use client = new HttpClient()
-      let uri =
-        sprintf
-          "https://login.windows.net/%s/oauth2/token"
-          creds.TenantID
-      let text =
-        sprintf
-          "resource=%s&client_id=%s&grant_type=client_credentials&client_secret=%s"
-          (WebUtility.UrlEncode("https://management.core.windows.net/"))
-          (WebUtility.UrlEncode(creds.ClientID))
-          (WebUtility.UrlEncode(creds.ClientSecret))
-
-      let content = new StringContent(text, Encoding.UTF8, "application/x-www-form-urlencoded")
-
-      return! client.PostAsync(uri, content) |> Async.AwaitTask
-    }
-    |> Async.RunSynchronously
-    |> parseResponse
-
-  match r with
-  | OK text ->
-    let json = JObject.Parse(text)
-    let token = json.["access_token"].Value<string>()
-    { Token = sprintf "Bearer %s" token
-      SubscriptionID = creds.SubscriptionID
-    }
-  | Error(reason, text) ->
+let AsyncChoice choice =
+  match choice with
+  | Choice1Of2 x -> x
+  | Choice2Of2 (OK(text)) ->
+    failwith text
+  | Choice2Of2 (Error(reason, text)) ->
     failwithf "%s: %s" reason text
+
+let CheckResponse response =
+  match response with
+  | OK _ -> ()
+  | Error(reason, text) -> failwithf "%s: %s" reason text
+
+let GetAuth (creds: Credentials) =
+  async {
+    use client = new HttpClient()
+    let uri =
+      sprintf
+        "https://login.windows.net/%s/oauth2/token"
+        creds.TenantID
+    let text =
+      sprintf
+        "resource=%s&client_id=%s&grant_type=client_credentials&client_secret=%s"
+        (WebUtility.UrlEncode("https://management.core.windows.net/"))
+        (WebUtility.UrlEncode(creds.ClientID))
+        (WebUtility.UrlEncode(creds.ClientSecret))
+
+    let content = new StringContent(text, Encoding.UTF8, "application/x-www-form-urlencoded")
+
+    let! r =
+      client.PostAsync(uri, content)
+      |> Async.AwaitTask
+      |> parseResponse
+
+    match r with
+    | OK text ->
+      let json = JObject.Parse(text)
+      let token = json.["access_token"].Value<string>()
+      return
+        Choice1Of2
+          { Token = sprintf "Bearer %s" token
+            SubscriptionID = creds.SubscriptionID
+          }
+    | err ->
+      return Choice2Of2 err
+  }
 
 let CreateResourceGroup auth (rg: ResourceGroup) =
   ResourceGroupUri auth.SubscriptionID rg.Name
@@ -214,31 +217,34 @@ let DeleteStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
   |> parseResponse
 
 let StorageAccountKeys auth (rg: ResourceGroup) (sa: StorageAccount) =
-  let r =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/listKeys?api-version=2016-01-01"
-      auth.SubscriptionID rg.Name sa.Name
-    |> post auth.Token ""
-    |> parseResponse
+  async {
+    let! r =
+      sprintf
+        "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/listKeys?api-version=2016-01-01"
+        auth.SubscriptionID rg.Name sa.Name
+      |> post auth.Token ""
+      |> parseResponse
 
-  match r with
-  | OK text ->
-    let json = JObject.Parse(text)
-    let keys = json.["keys"].Value<JArray>()
-
-    keys.Children()
-    |> Seq.filter (fun key ->
-      let prop = key.Value<JObject>()
-      let perm = prop.["permissions"].Value<string>()
-      String.Compare(perm, "full", StringComparison.OrdinalIgnoreCase) = 0
-      )
-    |> Seq.map (fun key ->
-      let prop = key.Value<JObject>()
-      prop.["value"].Value<string>()
-      )
-    |> List.ofSeq
-  | Error(reason, text) ->
-    failwithf "%s: %s" reason text
+    match r with
+    | OK text ->
+      let json = JObject.Parse(text)
+      let keys = json.["keys"].Value<JArray>()
+      let tokens =
+        keys.Children()
+        |> Seq.filter (fun key ->
+          let prop = key.Value<JObject>()
+          let perm = prop.["permissions"].Value<string>()
+          String.Compare(perm, "full", StringComparison.OrdinalIgnoreCase) = 0
+          )
+        |> Seq.map (fun key ->
+          let prop = key.Value<JObject>()
+          prop.["value"].Value<string>()
+          )
+        |> List.ofSeq
+      return Choice1Of2 tokens
+    | err ->
+      return Choice2Of2 err
+  }
 
 let CreateAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
   AppServicePlanUri auth.SubscriptionID rg.Name plan.Name
@@ -352,26 +358,30 @@ type KuduAuth = {
 }
 
 let KuduAuth auth (rg: ResourceGroup) name =
-  let r =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/config/publishingcredentials/list?api-version=2015-08-01"
-      auth.SubscriptionID
-      rg.Name
-      name
-    |> post auth.Token ""
-    |> parseResponse
+  async {
+    let! r =
+      sprintf
+        "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/config/publishingcredentials/list?api-version=2015-08-01"
+        auth.SubscriptionID
+        rg.Name
+        name
+      |> post auth.Token ""
+      |> parseResponse
 
-  match r with
-  | OK text ->
-    let json = JObject.Parse(text)
-    let user = json.["properties"].["publishingUserName"].Value<string>()
-    let pass = json.["properties"].["publishingPassword"].Value<string>()
-    let bytes = Encoding.ASCII.GetBytes(sprintf "%s:%s" user pass)
-    { Token = "Basic " + Convert.ToBase64String(bytes)
-      Name = name
-    }
-  | Error(reason, text) ->
-    failwithf "%s: %s" reason text
+    match r with
+    | OK text ->
+      let json = JObject.Parse(text)
+      let user = json.["properties"].["publishingUserName"].Value<string>()
+      let pass = json.["properties"].["publishingPassword"].Value<string>()
+      let bytes = Encoding.ASCII.GetBytes(sprintf "%s:%s" user pass)
+      return
+        Choice1Of2
+        { Token = "Basic " + Convert.ToBase64String(bytes)
+          Name = name
+        }
+    | err ->
+      return Choice2Of2 err
+  }
 
 let KuduVersion auth =
   sprintf
@@ -411,14 +421,10 @@ let KuduVfsPutDir auth target source =
       auth.Name
       target
 
-  async {
-    use client = makeClient auth.Token
-    let data = File.ReadAllBytes(zip)
-    File.Delete(zip)
-    let content = new ByteArrayContent(data)
-    return!
-      client.PutAsync(uri, content)
-      |> Async.AwaitTask
-  }
-  |> Async.RunSynchronously
+  use client = makeClient auth.Token
+  let data = File.ReadAllBytes(zip)
+  File.Delete(zip)
+
+  client.PutAsync(uri, new ByteArrayContent(data))
+  |> Async.AwaitTask
   |> parseResponse

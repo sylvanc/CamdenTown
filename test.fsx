@@ -62,23 +62,19 @@ type Queue2 = Queue of Foo
 let QueueHandler(input: Foo, log: TraceWriter) =
   async {
     log.Error(sprintf "%s likes %s" input.Name input.Food)
-    return { Name = "Bob " + input.Name; Food = input.Food + " and cheese" }
+    return { Name = "Larry " + input.Name; Food = input.Food + " and cheese" }
   } |> Async.StartAsTask
 
 [<QueueTrigger(typeof<Queue2>)>]
 let QueueSecond(input: Foo, log: TraceWriter) =
   log.Error(sprintf "%s likes %s" input.Name input.Food)
 
-CamdenTown.Compile.Compiler.Check [QueueSecond]
-
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
   log.Error(sprintf "Executed at %s" (DateTimeOffset.Now.ToString()))
 
-// TableIn, TableOut, BlobTrigger, BlobIn, BlobOut
-
-
 // TODO:
+// TableIn, TableOut
 // handle auth token expiration
 // create service principal
 //  https://azure.microsoft.com/en-gb/documentation/articles/resource-group-authenticate-service-principal-cli/
@@ -89,6 +85,7 @@ let TimerToLog(timer: TimerInfo, log: TraceWriter) =
 // set log level on webapp
 // stream log
 
+app.Deploy [ QueueHandler ]
 app.Deploy [ QueueHandler; QueueSecond ]
 app.Undeploy [ QueueHandler; QueueSecond ]
 
@@ -103,6 +100,9 @@ app.Delete()
 // check into a samples directory
 // _maybe_ draw the rectangles on the images
 // image comparison?
+
+// allow multiple attributes on some things
+// fire triggers from REPL
 
 // TEST:
 // queue out not via $return

@@ -10,20 +10,26 @@ type AzureFunctionApp
   (creds: Credentials, rg: ResourceGroup, sa: StorageAccount,
     plan: AppServicePlan, name: string, ?dir: string) =
 
-  let auth = GetAuth creds
-
   let attempt resp =
-    match resp with
-    | OK _ -> ()
-    | Error(reason, text) -> failwithf "%s: %s" reason text
+    resp
+    |> Async.RunSynchronously
+    |> CheckResponse
+
+  let result resp =
+    resp
+    |> Async.RunSynchronously
+    |> AsyncChoice
+
+  let auth = GetAuth creds |> result
 
   do
-    attempt (CreateResourceGroup auth rg)
-    attempt (CreateStorageAccount auth rg sa)
-    attempt (CreateAppServicePlan auth rg plan)
-    attempt (CreateFunctionApp auth rg plan name)
+    CreateResourceGroup auth rg |> attempt
+    CreateStorageAccount auth rg sa |> attempt
+    CreateAppServicePlan auth rg plan |> attempt
+    CreateFunctionApp auth rg plan name |> attempt
 
-    let keys = StorageAccountKeys auth rg sa
+    let keys = StorageAccountKeys auth rg sa |> result
+
     let connectionString =
       sprintf "DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s"
         sa.Name
@@ -38,14 +44,14 @@ type AzureFunctionApp
           "WEBSITE_NODE_DEFAULT_VERSION", "4.1.2" ]
       )
 
-  let kuduAuth = KuduAuth auth rg name
+  let kuduAuth = KuduAuth auth rg name |> result
   let buildDir = defaultArg dir "build"
 
   member __.Deploy
     ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
       ) =
     // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name with
+    match StopFunctionApp auth rg name |> Async.RunSynchronously with
     | OK _ ->
       let r = Compiler.CompileExpr(buildDir, xs)
       let ok = r |> List.forall (fun (_, _, _, errors) -> errors.IsEmpty)
@@ -56,7 +62,10 @@ type AzureFunctionApp
             if ok then
               DeleteFunction auth rg name func |> ignore
               let target = sprintf "site/wwwroot/%s" func
-              match KuduVfsPutDir kuduAuth target path with
+              match
+                KuduVfsPutDir kuduAuth target path
+                |> Async.RunSynchronously
+                with
               | OK _ -> OK func
               | Error(reason, text) ->
                 Error((sprintf "%s: %s" func reason), text)
@@ -65,22 +74,25 @@ type AzureFunctionApp
           else
             Error(func, String.concat "\n" errors)
         )
-      (StartFunctionApp auth rg name)::resp
+      (StartFunctionApp auth rg name |> Async.RunSynchronously)::resp
     | x -> [x]
 
   member __.Undeploy
     ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
       ) =
     // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name with
+    match StopFunctionApp auth rg name |> Async.RunSynchronously with
     | OK _ ->
       let resp =
         Compiler.GetMI xs
         |> List.map (
           (fun (x, mi) -> mi.Name) >>
-          (fun func -> DeleteFunction auth rg name func)
-        )
-      (StartFunctionApp auth rg name)::resp
+          (fun func ->
+            DeleteFunction auth rg name func
+            |> Async.RunSynchronously
+            )
+          )
+      (StartFunctionApp auth rg name |> Async.RunSynchronously)::resp
     | x -> [x]
 
   member __.Start () =

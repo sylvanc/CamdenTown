@@ -113,7 +113,7 @@ type QueueTriggerAttribute(ty: Type, name: string) =
         ])
     ]
 
-[<AttributeUsage(AttributeTargets.Method)>]
+[<AttributeUsage(AttributeTargets.Method, AllowMultiple = true)>]
 type QueueOutputAttribute(ty: Type, name: string) =
   inherit AzureAttribute()
   new (ty) = QueueOutputAttribute(ty, "$return")
@@ -273,7 +273,7 @@ type BlobTriggerAttribute(ty: Type, path: string, name: string) =
         ])
     ]
 
-[<AttributeUsage(AttributeTargets.Method)>]
+[<AttributeUsage(AttributeTargets.Method, AllowMultiple = true)>]
 type BlobInputAttribute(ty: Type, path: string, name: string) =
   inherit TriggerAttribute()
 
@@ -334,7 +334,7 @@ type BlobInputAttribute(ty: Type, path: string, name: string) =
         ])
     ]
 
-[<AttributeUsage(AttributeTargets.Method)>]
+[<AttributeUsage(AttributeTargets.Method, AllowMultiple = true)>]
 type BlobOutputAttribute(ty: Type, path: string, name: string) =
   inherit TriggerAttribute()
 
