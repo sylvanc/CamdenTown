@@ -94,9 +94,9 @@ let BoundTypes (ty: Type) (types: Type list) =
   types
   |> List.collect (fun t ->
     if (t = typeof<System.Void>) || (t = typeof<unit>) then
-      [ t ]
+      []
     else
-      [ t; generic.MakeGenericType [| t |] ]
+      [ generic.MakeGenericType [| t |] ]
     )
 
 let TypesAsync (types: Type list) =
@@ -106,7 +106,7 @@ let TypesCollector (types: Type list) =
   BoundTypes typeof<ICollector<_>> types
 
 let TypesAsyncCollector (types: Type list) =
-  BoundTypes typeof<ICollector<_>> types
+  BoundTypes typeof<IAsyncCollector<_>> types
 
 let Param (m: MethodInfo) name (types: Type list) =
   _param m name types false
@@ -118,7 +118,7 @@ let ExistsParam (m: MethodInfo) name (types: Type list) =
   None, snd (Param m name types)
 
 let Result (m: MethodInfo) (types: Type list) =
-  let taskTypes = TypesAsync types
+  let taskTypes = List.append types (TypesAsync types)
   if not (taskTypes |> typeInList m.ReturnType) then
     Some "$return", [sprintf "Return type must be %s" (typeList taskTypes)]
   else

@@ -1,10 +1,19 @@
 module CamdenTown.FunctionApp
 
-#load "manage.fsx"
+#load "rest.fsx"
+#load "checker.fsx"
 #load "compile.fsx"
+#load "storage.fsx"
+#load "queues.fsx"
+#load "manage.fsx"
 
+open System
 open System.Threading
+open Microsoft.WindowsAzure.Storage
+open CamdenTown.Rest
+open CamdenTown.Queues
 open CamdenTown.Manage
+open CamdenTown.Checker
 open CamdenTown.Compile
 
 type AzureFunctionApp
@@ -21,6 +30,7 @@ type AzureFunctionApp
     |> Async.RunSynchronously
     |> AsyncChoice
 
+  let buildDir = defaultArg dir "build"
   let auth = GetAuth creds |> result
 
   do
@@ -29,13 +39,16 @@ type AzureFunctionApp
     CreateAppServicePlan auth rg plan |> attempt
     CreateFunctionApp auth rg plan name |> attempt
 
-    let keys = StorageAccountKeys auth rg sa |> result
+  let kuduAuth = KuduAuth auth rg name |> result
+  let storageKeys = StorageAccountKeys auth rg sa |> result
+  let connectionString =
+    sprintf "DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s"
+      sa.Name
+      storageKeys.Head
+  let storageAccount = CloudStorageAccount.Parse(connectionString)
+  let queueClient = storageAccount.CreateCloudQueueClient()
 
-    let connectionString =
-      sprintf "DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s"
-        sa.Name
-        keys.Head
-
+  do
     attempt (
       SetAppSettings auth rg name
         [ "AzureWebJobsDashboard", connectionString
@@ -45,8 +58,27 @@ type AzureFunctionApp
           "WEBSITE_NODE_DEFAULT_VERSION", "4.1.2" ]
       )
 
-  let kuduAuth = KuduAuth auth rg name |> result
-  let buildDir = defaultArg dir "build"
+  member __.Auth () = auth
+  member __.KuduAuth () = kuduAuth
+  member __.StorageKey () = storageKeys.Head
+
+  member __.Queue<'T, 'U> () =
+    let q =
+      let ty = typeof<'T>
+      let qt = NamedType "Queue" ty
+      if qt.IsSome then
+        let ty2 = typeof<'U>
+        if qt.Value = ty2 then
+          let name = ty.Name.ToLowerInvariant()
+          let q = queueClient.GetQueueReference(name)
+          q.CreateIfNotExists() |> ignore
+          q
+        else
+          failwithf "%s is not a Queue of %s" ty.Name ty2.Name
+      else
+        failwith "Not a queue"
+
+    LiveQueue<'U>(q)
 
   member __.Deploy
     ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>

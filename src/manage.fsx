@@ -2,8 +2,8 @@ module CamdenTown.Manage
 
 #r "System.IO.Compression"
 #r "System.IO.Compression.FileSystem"
-#r "System.Net.Http"
-#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+
+#load "rest.fsx"
 
 open System
 open System.IO
@@ -13,92 +13,7 @@ open System.Net.Http
 open System.Text
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
-
-type Response =
-  | OK of string
-  | Error of string * string
-
-module private Helpers =
-  let makeClient (token: string) =
-    let client = new HttpClient()
-    if not (isNull token) then
-      client.DefaultRequestHeaders.Add("Authorization", token)
-    client
-
-  let makeJson text =
-    let content = new StringContent(text)
-    content.Headers.ContentType.MediaType <- "application/json"
-    content
-
-  let get token (uri: string) = async {
-    use client = makeClient token
-    return! client.GetAsync(uri) |> Async.AwaitTask
-  }
-
-  let getStream token (uri: string) = async {
-    use client = makeClient token
-    return!
-      client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
-      |> Async.AwaitTask
-  }
-
-  let post token data (uri: string) = async {
-    use client = makeClient token
-    let content = makeJson data
-    return! client.PostAsync(uri, content) |> Async.AwaitTask
-  }
-
-  let put token data (uri: string) = async {
-    use client = makeClient token
-    let content = makeJson data
-    return! client.PutAsync(uri, content) |> Async.AwaitTask
-  }
-
-  let delete token (uri: string) = async {
-    use client = makeClient token
-    return! client.DeleteAsync(uri) |> Async.AwaitTask
-  }
-
-  let ResourceGroupUri subscriptionId name =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s?api-version=2015-11-01"
-      subscriptionId name
-
-  let StorageAccountUri subscriptionId rgName name =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s?api-version=2016-01-01"
-      subscriptionId rgName name
-
-  let AppServicePlanUri subscriptionId rgName name =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s?api-version=2015-08-01"
-      subscriptionId rgName name
-
-  let AppServiceUri subscriptionId rgName name =
-    sprintf
-      "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s?api-version=2015-08-01"
-      subscriptionId rgName name
-
-  let VfsUri name path =
-    sprintf
-      "https://%s.scm.azurewebsites.net/api/vfs/%s/"
-      name
-      path
-
-  let parseResponse (response: Async<HttpResponseMessage>) =
-    async {
-      let! res = response
-      let! content =
-        res.Content.ReadAsStringAsync()
-        |> Async.AwaitTask
-
-      if res.IsSuccessStatusCode then
-        return OK content
-      else
-        return Error(res.ReasonPhrase, content)
-    }
-
-open Helpers
+open CamdenTown.Rest
 
 type Credentials = {
   SubscriptionID: string
@@ -127,6 +42,32 @@ type Auth = {
   Token: string
   SubscriptionID: string
 }
+
+let ResourceGroupUri subscriptionId name =
+  sprintf
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s?api-version=2015-11-01"
+    subscriptionId name
+
+let StorageAccountUri subscriptionId rgName name =
+  sprintf
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s?api-version=2016-01-01"
+    subscriptionId rgName name
+
+let AppServicePlanUri subscriptionId rgName name =
+  sprintf
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/serverfarms/%s?api-version=2015-08-01"
+    subscriptionId rgName name
+
+let AppServiceUri subscriptionId rgName name =
+  sprintf
+    "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s?api-version=2015-08-01"
+    subscriptionId rgName name
+
+let VfsUri name path =
+  sprintf
+    "https://%s.scm.azurewebsites.net/api/vfs/%s/"
+    name
+    path
 
 let AsyncChoice choice =
   match choice with

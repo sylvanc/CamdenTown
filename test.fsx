@@ -12,9 +12,43 @@ open CamdenTown.FunctionApp
 
 // Here we set up our Azure Function App
 let app = Creds.App()
+
+[<CLIMutable>]
+type Foo = {
+  Name: string
+  Food: string
+}
+
+type Queue1 = Queue of Foo
+type Queue2 = Queue of Foo
+type Queue3 = Queue of Foo
+
+[<QueueTrigger(typeof<Queue1>)>]
+[<QueueOutput(typeof<Queue2>)>]
+[<QueueOutput(typeof<Queue3>, "q3")>]
+let QueueHandler(input: Foo, q3: ICollector<Foo>, log: TraceWriter) =
+  async {
+    log.Error(sprintf "%s likes %s" input.Name input.Food)
+    q3.Add({ Name = "Mrs. " + input.Name; Food = input.Food + " and crackers" })
+    return { Name = "Mr. " + input.Name; Food = input.Food + " and cheese" }
+  } |> Async.StartAsTask
+
+[<QueueTrigger(typeof<Queue2>)>]
+let QueueSecond(input: Foo, log: TraceWriter) =
+  log.Error(sprintf "%s wants %s" input.Name input.Food)
+
+[<QueueTrigger(typeof<Queue3>)>]
+let QueueThird(input: Foo, log: TraceWriter) =
+  log.Error(sprintf "%s wants %s" input.Name input.Food)
+
+app.Deploy [ QueueHandler; QueueSecond; QueueThird ]
+
 let logLevel = app.LogLevel()
 let log = app.Log()
-// log.Cancel()
+log.Cancel()
+
+let q1 = app.Queue<Queue1, Foo>()
+let r1 = q1.Push({ Name = "Smith"; Food = "snacks" })
 
 let numbers = [ for i in 1..10 -> i * i ]
 
@@ -51,27 +85,6 @@ let HttpClosure(req: HttpRequestMessage, log: TraceWriter) =
     return resp
   } |> Async.StartAsTask
 
-[<CLIMutable>]
-type Foo = {
-  Name: string
-  Food: string
-}
-
-type Queue1 = Queue of Foo
-type Queue2 = Queue of Foo
-
-[<QueueTrigger(typeof<Queue1>)>]
-[<QueueOutput(typeof<Queue2>)>]
-let QueueHandler(input: Foo, log: TraceWriter) =
-  async {
-    log.Error(sprintf "%s likes %s" input.Name input.Food)
-    return { Name = "Larry " + input.Name; Food = input.Food + " and cheese" }
-  } |> Async.StartAsTask
-
-[<QueueTrigger(typeof<Queue2>)>]
-let QueueSecond(input: Foo, log: TraceWriter) =
-  log.Error(sprintf "%s likes %s" input.Name input.Food)
-
 [<TimerTrigger("*/10 * * * * *")>]
 let TimerToLog(timer: TimerInfo, log: TraceWriter) =
   log.Error(sprintf "Executed at %s" (DateTimeOffset.Now.ToString()))
@@ -87,10 +100,6 @@ let TimerToLog(timer: TimerInfo, log: TraceWriter) =
 // bind a storage account
 // set log level on webapp
 // stream log
-
-app.Deploy [ QueueHandler ]
-app.Deploy [ QueueHandler; QueueSecond ]
-app.Undeploy [ QueueHandler; QueueSecond ]
 
 app.Deploy [ TimerToLog ]
 app.Deploy [ HttpClosure ]

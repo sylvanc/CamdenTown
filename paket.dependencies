@@ -6,3 +6,4 @@ nuget Microsoft.Azure.WebJobs >= 2.0 prerelease
 nuget Microsoft.Azure.WebJobs.Extensions >= 2.0 prerelease
 nuget Newtonsoft.Json
 nuget Vagabond
+nuget WindowsAzure.Storage
