@@ -1,5 +1,4 @@
-// Create a credentials file based on creds.fsx and #load it here
-#load "creds-private.fsx"
+#load "src/functionapp.fsx"
 
 open System
 open System.Net
@@ -11,7 +10,26 @@ open CamdenTown.Attributes
 open CamdenTown.FunctionApp
 
 // Here we set up our Azure Function App
-let app = Creds.App()
+// Create a creds-private.fsx based on creds.fsx
+#load "creds-private.fsx"
+
+let app =
+  AzureFunctionApp(
+    name = "DynaBadger999",
+    group = "DynaBadgers",
+    storage = "dynabadgerstorage",
+    planName = "DynaBadgerFarm",
+
+    subId = Creds.SubscriptionID,
+    tenantId = Creds.TenantID,
+    clientId = Creds.ClientID,
+    clientSecret = Creds.ClientSecret,
+
+    replication = "Standard_LRS",
+    plan = "Y1",
+    location = "westeurope",
+    capacity = 0
+  )
 
 [<CLIMutable>]
 type Foo = {
@@ -28,27 +46,41 @@ type Queue3 = Queue of Foo
 [<QueueOutput(typeof<Queue3>, "q3")>]
 let QueueHandler(input: Foo, q3: ICollector<Foo>, log: TraceWriter) =
   async {
-    log.Error(sprintf "%s likes %s" input.Name input.Food)
+    log.Warning(sprintf "%s likes %s" input.Name input.Food)
     q3.Add({ Name = "Mrs. " + input.Name; Food = input.Food + " and crackers" })
     return { Name = "Mr. " + input.Name; Food = input.Food + " and cheese" }
   } |> Async.StartAsTask
 
 [<QueueTrigger(typeof<Queue2>)>]
 let QueueSecond(input: Foo, log: TraceWriter) =
-  log.Error(sprintf "%s wants %s" input.Name input.Food)
+  log.Info(sprintf "%s wants %s" input.Name input.Food)
 
 [<QueueTrigger(typeof<Queue3>)>]
 let QueueThird(input: Foo, log: TraceWriter) =
-  log.Error(sprintf "%s wants %s" input.Name input.Food)
+  log.Verbose(sprintf "%s wants %s" input.Name input.Food)
 
 app.Deploy [ QueueHandler; QueueSecond; QueueThird ]
 
-let logLevel = app.LogLevel()
-let log = app.Log()
+let log = app.Log (printfn "%s")
 log.Cancel()
 
 let q1 = app.Queue<Queue1, Foo>()
-let r1 = q1.Push({ Name = "Smith"; Food = "snacks" })
+let r1 = q1.Push({ Name = "Smith"; Food = "candy" })
+
+type StringQueue1 = Queue of string
+type StringQueue2 = Queue of string
+
+[<QueueTrigger(typeof<StringQueue1>)>]
+[<QueueOutput(typeof<StringQueue2>)>]
+let StringQueue(input: string) =
+  "Processed: " + input
+
+app.Deploy [StringQueue]
+
+let stringq1 = app.Queue<StringQueue1, string>()
+let stringq2 = app.Queue<StringQueue2, string>()
+stringq1.Push("bob5")
+let r = stringq2.Pop()
 
 let numbers = [ for i in 1..10 -> i * i ]
 
@@ -90,16 +122,8 @@ let TimerToLog(timer: TimerInfo, log: TraceWriter) =
   log.Error(sprintf "Executed at %s" (DateTimeOffset.Now.ToString()))
 
 // TODO:
-// TableIn, TableOut
-// handle auth token expiration
-// create service principal
 //  https://azure.microsoft.com/en-gb/documentation/articles/resource-group-authenticate-service-principal-cli/
 //  ~/.azure has access tokens and subscription info after a CLI login
-// create needed queues
-//  statically define them to avoid string referencing?
-// bind a storage account
-// set log level on webapp
-// stream log
 
 app.Deploy [ TimerToLog ]
 app.Deploy [ HttpClosure ]
@@ -113,11 +137,13 @@ app.Delete()
 // _maybe_ draw the rectangles on the images
 // image comparison?
 
-// allow multiple attributes on some things
-// fire triggers from REPL
+// TODO:
+// TableIn, TableOut
+// handle auth token expiration
+// create service principal
+// create blobs from REPL
 
 // TEST:
-// queue out not via $return
 // blob trigger
 // blob in
 // blob out via $return

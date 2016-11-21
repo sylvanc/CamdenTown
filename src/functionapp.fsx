@@ -17,8 +17,21 @@ open CamdenTown.Checker
 open CamdenTown.Compile
 
 type AzureFunctionApp
-  (creds: Credentials, rg: ResourceGroup, sa: StorageAccount,
-    plan: AppServicePlan, name: string, ?dir: string) =
+  (
+    subId: string,
+    tenantId: string,
+    clientId: string,
+    clientSecret: string,
+    group: string,
+    storage: string,
+    replication: string,
+    planName: string,
+    plan: string,
+    location: string,
+    capacity: int,
+    name: string,
+    ?dir: string
+  ) =
 
   let attempt resp =
     resp
@@ -30,27 +43,53 @@ type AzureFunctionApp
     |> Async.RunSynchronously
     |> AsyncChoice
 
+  let rec retry n timeout f x =
+    try
+      f x
+    with e ->
+      if n > 0 then
+        Async.Sleep timeout |> Async.RunSynchronously
+        retry (n - 1) timeout f x
+      else
+        raise e
+
+  let retryAttempt x = retry 5 1000 attempt x
+  let retryResult x = retry 5 1000 result x
+
   let buildDir = defaultArg dir "build"
-  let auth = GetAuth creds |> result
+  let token =
+    GetAuth subId tenantId clientId clientSecret
+    |> retryResult
 
   do
-    CreateResourceGroup auth rg |> attempt
-    CreateStorageAccount auth rg sa |> attempt
-    CreateAppServicePlan auth rg plan |> attempt
-    CreateFunctionApp auth rg plan name |> attempt
+    CreateResourceGroup subId token group location
+    |> retryAttempt
+    CreateStorageAccount subId token group storage location replication
+    |> retryAttempt
+    CreateAppServicePlan subId token group planName plan location capacity
+    |> retryAttempt
+    CreateFunctionApp subId token group planName name location
+    |> retryAttempt
 
-  let kuduAuth = KuduAuth auth rg name |> result
-  let storageKeys = StorageAccountKeys auth rg sa |> result
+  let kuduToken =
+    KuduAuth subId token group name
+    |> retryResult
+
+  let storageKeys =
+    StorageAccountKeys subId token group storage
+    |> retryResult
+
   let connectionString =
     sprintf "DefaultEndpointsProtocol=https;AccountName=%s;AccountKey=%s"
-      sa.Name
+      storage
       storageKeys.Head
   let storageAccount = CloudStorageAccount.Parse(connectionString)
   let queueClient = storageAccount.CreateCloudQueueClient()
+  let blobClient = storageAccount.CreateCloudBlobClient()
 
   do
     attempt (
-      SetAppSettings auth rg name
+      SetAppSettings subId token group name
         [ "AzureWebJobsDashboard", connectionString
           "AzureWebJobsStorage", connectionString
           "FUNCTIONS_EXTENSION_VERSION", "~1"
@@ -58,33 +97,41 @@ type AzureFunctionApp
           "WEBSITE_NODE_DEFAULT_VERSION", "4.1.2" ]
       )
 
-  member __.Auth () = auth
-  member __.KuduAuth () = kuduAuth
-  member __.StorageKey () = storageKeys.Head
-
   member __.Queue<'T, 'U> () =
-    let q =
-      let ty = typeof<'T>
-      let qt = NamedType "Queue" ty
-      if qt.IsSome then
-        let ty2 = typeof<'U>
-        if qt.Value = ty2 then
-          let name = ty.Name.ToLowerInvariant()
-          let q = queueClient.GetQueueReference(name)
-          q.CreateIfNotExists() |> ignore
-          q
-        else
-          failwithf "%s is not a Queue of %s" ty.Name ty2.Name
+    let ty = typeof<'T>
+    let qt = NamedType "Queue" ty
+    if qt.IsSome then
+      let ty2 = typeof<'U>
+      if qt.Value = ty2 then
+        let name = ty.Name.ToLowerInvariant()
+        let q = queueClient.GetQueueReference(name)
+        q.CreateIfNotExists() |> ignore
+        LiveQueue<'U>(q)
       else
-        failwith "Not a queue"
+        failwithf "%s is not a Queue of %s" ty.Name ty2.Name
+    else
+      failwith "Not a Queue"
 
-    LiveQueue<'U>(q)
+  member __.Container<'T, 'U> () =
+    let ty = typeof<'T>
+    let bt = NamedType "Blob" ty
+    if bt.IsSome then
+      let ty2 = typeof<'U>
+      if bt.Value = ty2 then
+        let name = ty.Name.ToLowerInvariant()
+        let c = blobClient.GetContainerReference(name)
+        c.CreateIfNotExists() |> ignore
+        LiveContainer<'U>(c)
+      else
+        failwithf "%s is not a Blob of %s" ty.Name ty2.Name
+    else
+      failwith "Not a Blob"
 
   member __.Deploy
     ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
       ) =
     // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name |> Async.RunSynchronously with
+    match StopFunctionApp subId token group name |> Async.RunSynchronously with
     | OK _ ->
       let r = Compiler.CompileExpr(buildDir, xs)
       let ok = r |> List.forall (fun (_, _, _, errors) -> errors.IsEmpty)
@@ -93,13 +140,13 @@ type AzureFunctionApp
         |> List.map (fun (typ, func, path, errors) ->
           if errors.IsEmpty then
             if ok then
-              DeleteFunction auth rg name func
+              DeleteFunction subId token group name func
               |> Async.RunSynchronously
               |> ignore
 
               let target = sprintf "site/wwwroot/%s" func
               match
-                KuduVfsPutDir kuduAuth target path
+                KuduVfsPutDir kuduToken name target path
                 |> Async.RunSynchronously
                 with
               | OK _ -> OK func
@@ -110,54 +157,51 @@ type AzureFunctionApp
           else
             Error(func, String.concat "\n" errors)
         )
-      (StartFunctionApp auth rg name |> Async.RunSynchronously)::resp
+      (StartFunctionApp subId token group name |> Async.RunSynchronously)::resp
     | x -> [x]
 
   member __.Undeploy
     ( [<ReflectedDefinition(true)>] xs: Quotations.Expr<obj list>
       ) =
     // Restart the function app so that loaded DLLs don't prevent deletion
-    match StopFunctionApp auth rg name |> Async.RunSynchronously with
+    match StopFunctionApp subId token group name |> Async.RunSynchronously with
     | OK _ ->
       let resp =
         Compiler.GetMI xs
         |> List.map (
           (fun (x, mi) -> mi.Name) >>
           (fun func ->
-            DeleteFunction auth rg name func
+            DeleteFunction subId token group name func
             |> Async.RunSynchronously
             )
           )
-      (StartFunctionApp auth rg name |> Async.RunSynchronously)::resp
+      (StartFunctionApp subId token group name |> Async.RunSynchronously)::resp
     | x -> [x]
 
   member __.Start () =
-    StartFunctionApp auth rg name |> Async.RunSynchronously
+    StartFunctionApp subId token group name |> Async.RunSynchronously
 
   member __.Stop () =
-    StopFunctionApp auth rg name |> Async.RunSynchronously
+    StopFunctionApp subId token group name |> Async.RunSynchronously
 
   member __.Restart () =
-    RestartFunctionApp auth rg name |> Async.RunSynchronously
+    RestartFunctionApp subId token group name |> Async.RunSynchronously
 
   member __.Delete () =
-    DeleteFunctionApp auth rg name |> Async.RunSynchronously
+    DeleteFunctionApp subId token group name |> Async.RunSynchronously
 
-  member __.Log () =
+  member __.Log (f: string -> unit) =
     let cancel = new CancellationTokenSource()
     let loop =
       async {
-        use! c = Async.OnCancel(fun () -> printfn "Log stopped")
+        use! c = Async.OnCancel(fun () -> f "Log stopped")
         let! token = Async.CancellationToken
-        let! stream = KuduAppLog kuduAuth
+        let! stream = KuduAppLog kuduToken name
 
         while not token.IsCancellationRequested do
           let! line = stream.ReadLineAsync() |> Async.AwaitTask
           if not token.IsCancellationRequested then
-            printfn "%s" line
+            f line
       }
     Async.Start(loop, cancel.Token)
     cancel
-
-  member __.LogLevel () =
-    KuduLogLevel kuduAuth |> Async.RunSynchronously

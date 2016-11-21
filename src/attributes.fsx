@@ -106,7 +106,7 @@ type QueueTriggerAttribute(ty: Type, name: string) =
   override __.Json () =
     [ new JObject(
         [ JProperty("type", "queueTrigger")
-          JProperty("queueName", ty.Name)
+          JProperty("queueName", ty.Name.ToLowerInvariant())
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
           JProperty("direction", "in")
@@ -165,7 +165,7 @@ type QueueOutputAttribute(ty: Type, name: string) =
   override __.Json () =
     [ JObject(
         [ JProperty("type", "queue")
-          JProperty("queueName", ty.Name)
+          JProperty("queueName", ty.Name.ToLowerInvariant())
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
           JProperty("direction", "out")
@@ -268,7 +268,7 @@ type BlobTriggerAttribute(ty: Type, path: string, name: string) =
         [ JProperty("type", "blobTrigger")
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
-          JProperty("path", path)
+          JProperty("path", sprintf "%s/%s" (ty.Name.ToLowerInvariant()) path)
           JProperty("direction", "in")
         ])
     ]
@@ -329,7 +329,7 @@ type BlobInputAttribute(ty: Type, path: string, name: string) =
         [ JProperty("type", "blob")
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
-          JProperty("path", path)
+          JProperty("path", sprintf "%s/%s" (ty.Name.ToLowerInvariant()) path)
           JProperty("direction", "in")
         ])
     ]
@@ -402,7 +402,7 @@ type BlobOutputAttribute(ty: Type, path: string, name: string) =
         [ JProperty("type", "blob")
           JProperty("connection", "AzureWebJobsStorage")
           JProperty("name", name)
-          JProperty("path", path)
+          JProperty("path", sprintf "%s/%s" (ty.Name.ToLowerInvariant()) path)
           JProperty("direction", "out")
         ])
     ]

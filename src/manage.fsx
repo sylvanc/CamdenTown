@@ -15,34 +15,6 @@ open Newtonsoft.Json
 open Newtonsoft.Json.Linq
 open CamdenTown.Rest
 
-type Credentials = {
-  SubscriptionID: string
-  TenantID: string
-  ClientID: string
-  ClientSecret: string
-}
-
-type ResourceGroup = {
-  Name: string
-  Location: string
-}
-
-type StorageAccount = {
-  Name: string
-  Sku: string
-}
-
-type AppServicePlan = {
-  Name: string
-  SkuName: string
-  Capacity: uint32
-}
-
-type Auth = {
-  Token: string
-  SubscriptionID: string
-}
-
 let ResourceGroupUri subscriptionId name =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s?api-version=2015-11-01"
@@ -82,19 +54,19 @@ let CheckResponse response =
   | OK _ -> ()
   | Error(reason, text) -> failwithf "%s: %s" reason text
 
-let GetAuth (creds: Credentials) =
+let GetAuth subscriptionId tenantId clientId clientSecret =
   async {
     use client = new HttpClient()
     let uri =
       sprintf
         "https://login.windows.net/%s/oauth2/token"
-        creds.TenantID
+        tenantId
     let text =
       sprintf
         "resource=%s&client_id=%s&grant_type=client_credentials&client_secret=%s"
         (WebUtility.UrlEncode("https://management.core.windows.net/"))
-        (WebUtility.UrlEncode(creds.ClientID))
-        (WebUtility.UrlEncode(creds.ClientSecret))
+        (WebUtility.UrlEncode(clientId))
+        (WebUtility.UrlEncode(clientSecret))
 
     let content = new StringContent(text, Encoding.UTF8, "application/x-www-form-urlencoded")
 
@@ -107,34 +79,30 @@ let GetAuth (creds: Credentials) =
     | OK text ->
       let json = JObject.Parse(text)
       let token = json.["access_token"].Value<string>()
-      return
-        Choice1Of2
-          { Token = sprintf "Bearer %s" token
-            SubscriptionID = creds.SubscriptionID
-          }
+      return Choice1Of2 (sprintf "Bearer %s" token)
     | err ->
       return Choice2Of2 err
   }
 
-let CreateResourceGroup auth (rg: ResourceGroup) =
-  ResourceGroupUri auth.SubscriptionID rg.Name
-  |> put auth.Token (
+let CreateResourceGroup subId token name location =
+  ResourceGroupUri subId name
+  |> put token (
     sprintf """
 {
   "location": "%s"
 }
 """
-      rg.Location)
+      location)
   |> parseResponse
 
-let DeleteResourceGroup auth (rg: ResourceGroup) =
-  ResourceGroupUri auth.SubscriptionID rg.Name
-  |> delete auth.Token
+let DeleteResourceGroup subId token name =
+  ResourceGroupUri subId name
+  |> delete token
   |> parseResponse
 
-let CreateStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
-  StorageAccountUri auth.SubscriptionID rg.Name sa.Name
-  |> put auth.Token (
+let CreateStorageAccount subId token group name location replication =
+  StorageAccountUri subId group name
+  |> put token (
     sprintf """
 {
   "location": "%s",
@@ -154,23 +122,23 @@ let CreateStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
   "kind": "Storage"
 }
 """
-      rg.Location
-      sa.Sku
+      location
+      replication
     )
   |> parseResponse
 
-let DeleteStorageAccount auth (rg: ResourceGroup) (sa: StorageAccount) =
-  StorageAccountUri auth.SubscriptionID rg.Name sa.Name
-  |> delete auth.Token
+let DeleteStorageAccount subId token group name =
+  StorageAccountUri subId group name
+  |> delete token
   |> parseResponse
 
-let StorageAccountKeys auth (rg: ResourceGroup) (sa: StorageAccount) =
+let StorageAccountKeys subId token group name =
   async {
     let! r =
       sprintf
         "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Storage/storageAccounts/%s/listKeys?api-version=2016-01-01"
-        auth.SubscriptionID rg.Name sa.Name
-      |> post auth.Token ""
+        subId group name
+      |> post token ""
       |> parseResponse
 
     match r with
@@ -194,9 +162,9 @@ let StorageAccountKeys auth (rg: ResourceGroup) (sa: StorageAccount) =
       return Choice2Of2 err
   }
 
-let CreateAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
-  AppServicePlanUri auth.SubscriptionID rg.Name plan.Name
-  |> put auth.Token (
+let CreateAppServicePlan subId token group name plan location capacity =
+  AppServicePlanUri subId group name
+  |> put token (
     sprintf """
 {
   "location": "%s",
@@ -206,25 +174,24 @@ let CreateAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
   }
 }
 """
-      rg.Location
-      plan.SkuName
-      plan.Capacity
+      location
+      plan
+      capacity
     )
   |> parseResponse
 
-let DeleteAppServicePlan auth (rg: ResourceGroup) (plan: AppServicePlan) =
-  AppServicePlanUri auth.SubscriptionID rg.Name plan.Name
-  |> delete auth.Token
+let DeleteAppServicePlan subId token group name =
+  AppServicePlanUri subId group name
+  |> delete token
   |> parseResponse
 
-let SetAppSettings
-  auth (rg: ResourceGroup) name (settings: (string * string) list) =
-  sprintf 
+let SetAppSettings subId token group name (settings: (string * string) list) =
+  sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/config/appsettings?api-version=2015-08-01"
-    auth.SubscriptionID
-    rg.Name
+    subId
+    group
     name
-  |> put auth.Token (
+  |> put token (
     let props =
       settings
       |> List.map (fun (key, value) ->
@@ -246,9 +213,9 @@ let SetAppSettings
     )
   |> parseResponse
 
-let CreateFunctionApp auth (rg: ResourceGroup) (plan: AppServicePlan) name =
-  AppServiceUri auth.SubscriptionID rg.Name name
-  |> put auth.Token (
+let CreateFunctionApp subId token group plan name location =
+  AppServiceUri subId group name
+  |> put token (
     sprintf """
 {
   "kind": "functionapp",
@@ -256,48 +223,49 @@ let CreateFunctionApp auth (rg: ResourceGroup) (plan: AppServicePlan) name =
   "properties": { "serverFarmId": "%s" }
 }
 """
-      rg.Location
-      plan.Name)
+      location
+      plan
+    )
   |> parseResponse
 
-let StartFunctionApp auth (rg: ResourceGroup) name =
+let StartFunctionApp subId token group name =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/start?api-version=2015-08-01"
-    auth.SubscriptionID rg.Name name
-  |> post auth.Token ""
+    subId group name
+  |> post token ""
   |> parseResponse
 
-let StopFunctionApp auth (rg: ResourceGroup) name =
+let StopFunctionApp subId token group name =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/stop?api-version=2015-08-01"
-    auth.SubscriptionID rg.Name name
-  |> post auth.Token ""
+    subId group name
+  |> post token ""
   |> parseResponse
 
-let RestartFunctionApp auth (rg: ResourceGroup) name =
+let RestartFunctionApp subId token group name =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/restart?api-version=2015-08-01"
-    auth.SubscriptionID rg.Name name
-  |> post auth.Token ""
+    subId group name
+  |> post token ""
   |> parseResponse
 
-let DeleteFunctionApp auth (rg: ResourceGroup) name =
-  AppServiceUri auth.SubscriptionID rg.Name name
-  |> delete auth.Token
+let DeleteFunctionApp subId token group name =
+  AppServiceUri subId group name
+  |> delete token
   |> parseResponse
 
-let ListFunctions auth (rg: ResourceGroup) name =
+let ListFunctions subId token group name =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/functions?api-version=2015-08-01"
-    auth.SubscriptionID rg.Name name
-  |> get auth.Token
+    subId group name
+  |> get token
   |> parseResponse
 
-let DeleteFunction auth (rg: ResourceGroup) name funcName =
+let DeleteFunction subId token group name func =
   sprintf
     "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/functions/%s?api-version=2015-08-01"
-    auth.SubscriptionID rg.Name name funcName
-  |> delete auth.Token
+    subId group name func
+  |> delete token
   |> parseResponse
 
 type KuduAuth = {
@@ -305,15 +273,15 @@ type KuduAuth = {
   Name: string
 }
 
-let KuduAuth auth (rg: ResourceGroup) name =
+let KuduAuth subId token group name =
   async {
     let! r =
       sprintf
         "https://management.azure.com/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Web/sites/%s/config/publishingcredentials/list?api-version=2015-08-01"
-        auth.SubscriptionID
-        rg.Name
+        subId
+        group
         name
-      |> post auth.Token ""
+      |> post token ""
       |> parseResponse
 
     match r with
@@ -322,55 +290,51 @@ let KuduAuth auth (rg: ResourceGroup) name =
       let user = json.["properties"].["publishingUserName"].Value<string>()
       let pass = json.["properties"].["publishingPassword"].Value<string>()
       let bytes = Encoding.ASCII.GetBytes(sprintf "%s:%s" user pass)
-      return
-        Choice1Of2
-        { Token = "Basic " + Convert.ToBase64String(bytes)
-          Name = name
-        }
+      return Choice1Of2("Basic " + Convert.ToBase64String(bytes))
     | err ->
       return Choice2Of2 err
   }
 
-let KuduVersion auth =
+let KuduVersion token name =
   sprintf
     "https://%s.scm.azurewebsites.net/api/environment"
-    auth.Name
-  |> get auth.Token
+    name
+  |> get token
   |> parseResponse
 
-let KuduVfsGet auth path =
+let KuduVfsGet token name path =
   sprintf
     "https://%s.scm.azurewebsites.net/api/vfs/%s"
-    auth.Name
+    name
     path
-  |> get auth.Token
+  |> get token
   |> parseResponse
 
-let KuduVfsLs auth path =
-  VfsUri auth.Name path
-  |> get auth.Token
+let KuduVfsLs token name path =
+  VfsUri name path
+  |> get token
   |> parseResponse
 
-let KuduVfsMkdir auth path =
-  VfsUri auth.Name path
-  |> put auth.Token ""
+let KuduVfsMkdir token name path =
+  VfsUri name path
+  |> put token ""
   |> parseResponse
 
-let KuduVfsPutDir auth target source =
+let KuduVfsPutDir token name target source =
   async {
     let zip = source + ".zip"
     if File.Exists(zip) then
       File.Delete(zip)
     ZipFile.CreateFromDirectory(source, zip)
-    let! mkdirR = KuduVfsMkdir auth target
+    let! mkdirR = KuduVfsMkdir token name target
 
     let uri =
       sprintf
         "https://%s.scm.azurewebsites.net/api/zip/%s"
-        auth.Name
+        name
         target
 
-    use client = makeClient auth.Token
+    use client = makeClient token
     let data = File.ReadAllBytes(zip)
     File.Delete(zip)
 
@@ -380,21 +344,14 @@ let KuduVfsPutDir auth target source =
       |> parseResponse
   }
 
-let KuduAppLog auth =
+let KuduAppLog token name =
   async {
     let! resp =
       sprintf
         "https://%s.scm.azurewebsites.net/api/logstream/application"
-        auth.Name
-      |> getStream auth.Token
+        name
+      |> getStream token
 
     let! stream = resp.Content.ReadAsStreamAsync() |> Async.AwaitTask
     return new StreamReader(stream)
   }
-
-let KuduLogLevel auth =
-  sprintf
-    "https://%s.scm.azurewebsites.net/api/settings/trace_level"
-    auth.Name
-  |> get auth.Token
-  |> parseResponse
