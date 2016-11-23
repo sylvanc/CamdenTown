@@ -35,13 +35,13 @@ module private Helpers =
     let dllTemplate =
       """
 #r "System.Net.Http"
-#I "../../../packages/Newtonsoft.Json/lib/net45"
+#I "[[SOURCEDIRECTORY]]/../packages/Newtonsoft.Json/lib/net45"
 #r "Newtonsoft.Json.dll"
-#I "../../../packages/Microsoft.Azure.WebJobs.Core/lib/net45"
+#I "[[SOURCEDIRECTORY]]/../packages/Microsoft.Azure.WebJobs.Core/lib/net45"
 #r "Microsoft.Azure.WebJobs.dll"
-#I "../../../packages/Microsoft.Azure.WebJobs/lib/net45"
+#I "[[SOURCEDIRECTORY]]/../packages/Microsoft.Azure.WebJobs/lib/net45"
 #r "Microsoft.Azure.WebJobs.Host.dll"
-#I "../../../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45"
+#I "[[SOURCEDIRECTORY]]/../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45"
 #r "Microsoft.Azure.WebJobs.Extensions.dll"
 
 [[ASSEMBLIES]]
@@ -112,6 +112,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
     let dllSource =
       dllTemplate
+      |> replace "[[SOURCEDIRECTORY]]" __SOURCE_DIRECTORY__
       |> replace "[[ASSEMBLIES]]" assemblies
       |> replace "[[FUNCNAME]]" mi.Name
       |> replace "[[FUNCTYPE]]" functype

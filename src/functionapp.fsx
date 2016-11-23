@@ -8,6 +8,7 @@ module CamdenTown.FunctionApp
 #load "manage.fsx"
 
 open System
+open System.IO
 open System.Diagnostics
 open System.Threading
 open Microsoft.Azure.WebJobs
@@ -75,6 +76,8 @@ type AzureFunctionApp
     |> retryResult
 
   do
+    try Directory.Delete(buildDir, true) with _ -> ()
+
     CreateResourceGroup subId token group location
     |> retryAttempt
     CreateStorageAccount subId token group storage location replication
