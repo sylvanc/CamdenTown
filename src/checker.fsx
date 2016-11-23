@@ -1,8 +1,11 @@
 module CamdenTown.Checker
 
-#r "../packages/Microsoft.Azure.WebJobs.Core/lib/net45/Microsoft.Azure.WebJobs.dll"
-#r "../packages/Microsoft.Azure.WebJobs/lib/net45/Microsoft.Azure.WebJobs.Host.dll"
-#r "../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45/Microsoft.Azure.WebJobs.Extensions.dll"
+#I "../packages/Microsoft.Azure.WebJobs.Core/lib/net45"
+#r "Microsoft.Azure.WebJobs.dll"
+#I "../packages/Microsoft.Azure.WebJobs/lib/net45"
+#r "Microsoft.Azure.WebJobs.Host.dll"
+#I "../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45"
+#r "Microsoft.Azure.WebJobs.Extensions.dll"
 
 open System
 open System.Reflection

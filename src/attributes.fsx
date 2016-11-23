@@ -3,7 +3,8 @@ module CamdenTown.Attributes
 #load "checker.fsx"
 
 #r "System.Net.Http"
-#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
+#I "../packages/Newtonsoft.Json/lib/net45"
+#r "Newtonsoft.Json.dll"
 
 open System
 open System.IO

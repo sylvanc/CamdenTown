@@ -1,7 +1,9 @@
 module CamdenTown.Queues
 
-#r "../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
-#r "../packages/WindowsAzure.Storage/lib/net40/Microsoft.WindowsAzure.Storage.dll"
+#I "../packages/Newtonsoft.Json/lib/net45"
+#r "Newtonsoft.Json.dll"
+#I "../packages/WindowsAzure.Storage/lib/net40"
+#r "Microsoft.WindowsAzure.Storage.dll"
 
 open System
 open System.IO

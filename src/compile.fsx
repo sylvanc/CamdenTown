@@ -2,11 +2,16 @@ module CamdenTown.Compile
 
 #load "attributes.fsx"
 
-#r "../packages/System.Reflection.Metadata/lib/portable-net45+win8/System.Reflection.Metadata.dll"
-#r "../packages/FSharp.Compiler.Service/lib/net45/FSharp.Compiler.Service.dll"
-#r "../packages/FsPickler/lib/net45/FsPickler.dll"
-#r "../packages/Vagabond/lib/net45/Vagabond.dll"
-#r "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
+#I "../packages/System.Reflection.Metadata/lib/portable-net45+win8"
+#r "System.Reflection.Metadata.dll"
+#I "../packages/FSharp.Compiler.Service/lib/net45"
+#r "FSharp.Compiler.Service.dll"
+#I "../packages/FsPickler/lib/net45"
+#r "FsPickler.dll"
+#I "../packages/Vagabond/lib/net45"
+#r "Vagabond.dll"
+#I "../packages/Mono.Cecil/lib/net45"
+#r "Mono.Cecil.dll"
 
 open System
 open System.IO
@@ -30,10 +35,14 @@ module private Helpers =
     let dllTemplate =
       """
 #r "System.Net.Http"
-#r "../../../packages/Newtonsoft.Json/lib/net45/Newtonsoft.Json.dll"
-#r "../../../packages/Microsoft.Azure.WebJobs.Core/lib/net45/Microsoft.Azure.WebJobs.dll"
-#r "../../../packages/Microsoft.Azure.WebJobs/lib/net45/Microsoft.Azure.WebJobs.Host.dll"
-#r "../../../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45/Microsoft.Azure.WebJobs.Extensions.dll"
+#I "../../../packages/Newtonsoft.Json/lib/net45"
+#r "Newtonsoft.Json.dll"
+#I "../../../packages/Microsoft.Azure.WebJobs.Core/lib/net45"
+#r "Microsoft.Azure.WebJobs.dll"
+#I "../../../packages/Microsoft.Azure.WebJobs/lib/net45"
+#r "Microsoft.Azure.WebJobs.Host.dll"
+#I "../../../packages/Microsoft.Azure.WebJobs.Extensions/lib/net45"
+#r "Microsoft.Azure.WebJobs.Extensions.dll"
 
 [[ASSEMBLIES]]
 
