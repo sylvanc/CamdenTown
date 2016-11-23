@@ -4,6 +4,7 @@ module CamdenTown.Queues
 #r "../packages/WindowsAzure.Storage/lib/net40/Microsoft.WindowsAzure.Storage.dll"
 
 open System
+open System.IO
 open System.Reflection
 open Newtonsoft.Json
 open FSharp.Reflection
@@ -41,7 +42,43 @@ type LiveQueue<'T>(q: CloudQueue) =
     else
       None
 
+  member this.WaitAndPop () =
+    let rec fetch () =
+      match this.Pop() with
+      | Some x -> x
+      | None ->
+        Async.Sleep(500) |> Async.RunSynchronously
+        fetch ()
+    fetch ()
+
 type LiveContainer<'T>(c: CloudBlobContainer) =
-  let x = c.GetBlockBlobReference("foo")
-  member __.Create (name: string, input: 'T) =
-    ()
+  let isStream = typeof<'T> = typeof<Stream>
+  let isTextReader = typeof<'T> = typeof<TextReader>
+  let isString = typeof<'T> = typeof<string>
+
+  member __.UploadFile (name, path) =
+    let blob = c.GetBlockBlobReference(name)
+    blob.UploadFromFile(path)
+
+  member __.UploadBytes (name, bytes) =
+    let blob = c.GetBlockBlobReference(name)
+    blob.UploadFromByteArray(bytes, 0, bytes.Length)
+
+  member __.UploadString (name, text) =
+    let blob = c.GetBlockBlobReference(name)
+    blob.UploadText(text)
+
+  member __.Upload (name, value: 'T) =
+    let blob = c.GetBlockBlobReference(name)
+
+    let text =
+      if isStream then
+        failwith "Can't upload a stream"
+      elif isTextReader then
+        (value :> obj :?> TextReader).ReadToEnd()
+      elif isString then
+        value :> obj :?> string
+      else
+        JsonConvert.SerializeObject(value)
+
+    blob.UploadText(text)

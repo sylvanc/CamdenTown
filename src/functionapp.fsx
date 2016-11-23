@@ -8,13 +8,26 @@ module CamdenTown.FunctionApp
 #load "manage.fsx"
 
 open System
+open System.Diagnostics
 open System.Threading
+open Microsoft.Azure.WebJobs
+open Microsoft.Azure.WebJobs.Host
 open Microsoft.WindowsAzure.Storage
 open CamdenTown.Rest
 open CamdenTown.Queues
 open CamdenTown.Manage
 open CamdenTown.Checker
 open CamdenTown.Compile
+
+type TraceLocal(level: TraceLevel) =
+  inherit TraceWriter(level)
+
+  override __.Trace (traceEvent: TraceEvent) =
+    printfn "%s [%s] %s: %s"
+      (traceEvent.Level.ToString())
+      (traceEvent.Timestamp.ToShortTimeString())
+      traceEvent.Source
+      traceEvent.Message
 
 type AzureFunctionApp
   (

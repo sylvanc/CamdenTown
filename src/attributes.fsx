@@ -212,16 +212,15 @@ type HttpTriggerAttribute(name: string) =
         ])
     ]
 
+let identifierRe =
+  Regex(
+    @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
+    )
+
 [<AttributeUsage(AttributeTargets.Method)>]
 type BlobTriggerAttribute(ty: Type, path: string, name: string) =
   inherit TriggerAttribute()
-
-  let re =
-    Regex(
-      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
-      )
-
-  new (ty, path) = BlobTriggerAttribute(ty, "input")
+  new (ty, path) = BlobTriggerAttribute(ty, path, "input")
 
   override __.Check mi =
     let qType = NamedType "Blob" ty
@@ -255,7 +254,7 @@ type BlobTriggerAttribute(ty: Type, path: string, name: string) =
         DNSName ty.Name
       ]
       ( // Bind path variables to method parameters.
-        re.Matches path
+        identifierRe.Matches path
         |> Seq.cast
         |> Seq.map (fun (m: Match) ->
           Param mi (m.Groups.[1].Value) [typeof<string>]
@@ -276,13 +275,7 @@ type BlobTriggerAttribute(ty: Type, path: string, name: string) =
 [<AttributeUsage(AttributeTargets.Method, AllowMultiple = true)>]
 type BlobInputAttribute(ty: Type, path: string, name: string) =
   inherit TriggerAttribute()
-
-  let re =
-    Regex(
-      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
-      )
-
-  new (ty, path) = BlobInputAttribute(ty, "input")
+  new (ty, path) = BlobInputAttribute(ty, path, "input")
 
   override __.Check mi =
     let qType = NamedType "Blob" ty
@@ -316,7 +309,7 @@ type BlobInputAttribute(ty: Type, path: string, name: string) =
         DNSName ty.Name
       ]
       ( // Check that path variables exist as method parameters.
-        re.Matches path
+        identifierRe.Matches path
         |> Seq.cast
         |> Seq.map (fun (m: Match) ->
           ExistsParam mi (m.Groups.[1].Value) [typeof<string>]
@@ -337,13 +330,7 @@ type BlobInputAttribute(ty: Type, path: string, name: string) =
 [<AttributeUsage(AttributeTargets.Method, AllowMultiple = true)>]
 type BlobOutputAttribute(ty: Type, path: string, name: string) =
   inherit TriggerAttribute()
-
-  let re =
-    Regex(
-      @"(?:^|[^{]){(@?[_\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}][\p{Lu}\p{Ll}\p{Lt}\p{Lm}\p{Lo}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}]*)}(?:[^}]|$)"
-      )
-
-  new (ty, path) = BlobOutputAttribute(ty, "$return")
+  new (ty, path) = BlobOutputAttribute(ty, path, "$return")
 
   override __.Check mi =
     let qType = NamedType "Blob" ty
@@ -389,7 +376,7 @@ type BlobOutputAttribute(ty: Type, path: string, name: string) =
         DNSName ty.Name
       ]
       ( // Check that path variables exist as method parameters.
-        re.Matches path
+        identifierRe.Matches path
         |> Seq.cast
         |> Seq.map (fun (m: Match) ->
           ExistsParam mi (m.Groups.[1].Value) [typeof<string>]

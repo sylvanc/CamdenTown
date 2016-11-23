@@ -352,6 +352,10 @@ let KuduAppLog token name =
         name
       |> getStream token
 
+    if not resp.IsSuccessStatusCode then
+      failwithf "Couldn't start log: %d %s"
+        (int resp.StatusCode) resp.ReasonPhrase
+
     let! stream = resp.Content.ReadAsStreamAsync() |> Async.AwaitTask
     return new StreamReader(stream)
   }

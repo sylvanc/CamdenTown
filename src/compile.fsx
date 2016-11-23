@@ -258,7 +258,7 @@ let Run([[PARAMETERS]]) =
       azureAttrs
       |> Array.choose (fun attr ->
         match attr with
-        | :? TriggerAttribute -> Some(attr)
+        | :? TriggerAttribute -> Some attr
         | _ -> None
         )
 
@@ -268,7 +268,7 @@ let Run([[PARAMETERS]]) =
       | 1 -> []
       | _ -> ["Function has more than one trigger attribute"]
 
-    mi, List.ofArray azureAttrs, errors
+    List.ofArray azureAttrs, errors
 
   let rec (|TheCall|_|) x =
     match x with
@@ -308,17 +308,22 @@ type Compiler =
     ( exprs: Quotations.Expr<obj list>
       ) =
     Compiler.GetMI exprs
-    |> List.map (
-      (fun (x, mi) -> x, getAttrs mi) >>
-      (fun (x, (mi, attr, errors)) ->
-        let errors =
-          if errors.IsEmpty then
-            checkTrigger x mi attr
-          else
-            errors
+    |> List.map (fun (x, mi) ->
+      let (attr, errors) = getAttrs mi
+      let errors =
+        if errors.IsEmpty then
+          checkTrigger x mi attr
+        else
+          errors
 
-        mi.DeclaringType.FullName, mi.Name, errors
-      )
+      mi.DeclaringType.FullName, mi.Name, errors
+    )
+
+  static member CheckMIs (mis: (obj * MethodInfo) list) =
+    mis
+    |> List.map (fun (x, mi) ->
+      let (attr, errors) = getAttrs mi
+      mi.DeclaringType.FullName, mi.Name, attr, errors
     )
 
   static member CompileExpr
@@ -328,22 +333,20 @@ type Compiler =
     let buildDir = sprintf "%s/%s" dir (Guid.NewGuid().ToString())
 
     Compiler.GetMI exprs
-    |> List.map (
-      (fun (x, mi) -> x, getAttrs mi) >>
-      (fun (x, (mi, attr, errors)) ->
+    |> List.map (fun (x, mi) ->
+      let (attr, errors) = getAttrs mi
+      let errors =
         if errors.IsEmpty then
-          x, mi, attr, checkTrigger x mi attr
+          checkTrigger x mi attr
         else
-        x, mi, attr, errors) >>
-      (fun (x, mi, attr, errors) ->
-        let (filename, errors) =
-          if errors.IsEmpty then
-            compileTrigger buildDir x mi attr
-          else
-            null, errors
+          errors
+      let (filename, errors) =
+        if errors.IsEmpty then
+          compileTrigger buildDir x mi attr
+        else
+          null, errors
 
-        mi.DeclaringType.FullName, mi.Name, filename, errors
-      )
+      mi.DeclaringType.FullName, mi.Name, filename, errors
     )
 
   static member Check
