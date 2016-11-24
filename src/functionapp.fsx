@@ -4,7 +4,6 @@ module CamdenTown.FunctionApp
 #load "checker.fsx"
 #load "compile.fsx"
 #load "storage.fsx"
-#load "queues.fsx"
 #load "manage.fsx"
 
 open System
