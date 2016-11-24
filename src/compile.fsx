@@ -155,8 +155,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
     let template =
         """
-[[ASSEMBLIES]]
-#r "[[DLLNAME]]"
+#r "./[[DLLNAME]]"
 
 let Run([[PARAMETERS]]) =
   [[FUNCNAME]].[[FUNCNAME]]Execute([[ARGUMENTS]])
@@ -164,7 +163,6 @@ let Run([[PARAMETERS]]) =
 
     let source =
       template
-      |> replace "[[ASSEMBLIES]]" assemblies
       |> replace "[[DLLNAME]]" (Path.GetFileName(dllName))
       |> replace "[[FUNCNAME]]" mi.Name
       |> replace "[[PARAMETERS]]" (ps |> String.concat ", ")
