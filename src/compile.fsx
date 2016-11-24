@@ -8,10 +8,10 @@ module CamdenTown.Compile
 #r "FSharp.Compiler.Service.dll"
 #I "../packages/FsPickler/lib/net45"
 #r "FsPickler.dll"
-#I "../packages/Vagabond/lib/net45"
-#r "Vagabond.dll"
 #I "../packages/Mono.Cecil/lib/net45"
 #r "Mono.Cecil.dll"
+#I "../packages/Vagabond/lib/net45"
+#r "Vagabond.dll"
 
 open System
 open System.IO
