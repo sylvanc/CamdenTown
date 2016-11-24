@@ -1,20 +1,14 @@
+// Load the samples. A top level script is used to
+// prevent multiple versions of types being instantiated.
 #load "samples/samples.fsx"
 
-open System
-open System.IO
-open System.Diagnostics
-open System.Net
-open System.Net.Http
-open Microsoft.Azure.WebJobs
-open Microsoft.Azure.WebJobs.Host
+// Create a creds-private.fsx based on creds.fsx
+// This holds your secret Azure credentials.
+#load "creds-private.fsx"
 
-open CamdenTown.Attributes
 open CamdenTown.FunctionApp
 
 // Here we set up our Azure Function App
-// Create a creds-private.fsx based on creds.fsx
-#load "creds-private.fsx"
-
 let app =
   AzureFunctionApp(
     name = "DynaBadger999",
