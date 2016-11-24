@@ -1,5 +1,6 @@
 // Load the samples. A top level script is used to
 // prevent multiple versions of types being instantiated.
+#load "src/functionapp.fsx"
 #load "samples/samples.fsx"
 
 // Create a creds-private.fsx based on creds.fsx
@@ -41,6 +42,9 @@ let files =
 
 let localDesc = Vision.TestLocal files
 let remoteDesc = Vision.Test app files
+
+// Deploy HttpClosure to Azure Functions
+app.Deploy [Httpclosure.HttpClosure]
 
 // Shutdown the log.
 log.Cancel()
