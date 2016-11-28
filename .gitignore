@@ -1,4 +1,9 @@
+.fake/
 .paket/
 packages/
 build/
+deploy/
+bin/
+obj/
+output/
 creds-private.fsx

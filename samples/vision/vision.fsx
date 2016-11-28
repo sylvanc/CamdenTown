@@ -1,4 +1,4 @@
-#load "../../src/functionapp.fsx"
+#load "../../build/CamdenTown.fsx"
 #load "../../creds-private.fsx"
 
 open System

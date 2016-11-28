@@ -1,5 +1,6 @@
-framework: >= net46
+framework: >= net45
 source https://www.nuget.org/api/v2
+nuget FAKE
 nuget FSharp.Compiler.Service
 nuget FSharp.Interop.Dynamic
 nuget Microsoft.Azure.WebJobs >= 2.0 prerelease
@@ -7,3 +8,4 @@ nuget Microsoft.Azure.WebJobs.Extensions >= 2.0 prerelease
 nuget Newtonsoft.Json
 nuget Vagabond
 nuget WindowsAzure.Storage
+nuget System.Reflection.Metadata

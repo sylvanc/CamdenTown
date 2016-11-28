@@ -1,4 +1,4 @@
-#load "../../src/functionapp.fsx"
+#load "../../build/CamdenTown.fsx"
 
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host

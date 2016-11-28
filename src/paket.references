@@ -1,0 +1,8 @@
+FSharp.Compiler.Service
+FsPickler
+Mono.Cecil
+Vagabond
+System.Reflection.Metadata
+Microsoft.Azure.WebJobs
+Microsoft.Azure.WebJobs.Extensions
+Newtonsoft.Json
