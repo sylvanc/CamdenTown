@@ -43,10 +43,7 @@ let files =
 
 let localDesc = Vision.TestLocal files
 let remoteDesc = Vision.Test app files
-
-// Deploy HttpClosure to Azure Functions
-app.Deploy [Httpclosure.HttpClosure]
-app.Deploy [Httpclosure.TestDeps1]
+remoteDesc
 
 // Shutdown the log.
 log.Cancel()

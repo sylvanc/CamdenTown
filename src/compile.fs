@@ -23,7 +23,7 @@ module Compile =
     let runFile localDir (mi: MethodInfo) =
       let dllTemplate =
         """
-#I "[[ASSEMBLYDIRECTORY]]"
+#I @"[[ASSEMBLYDIRECTORY]]"
 #r "System.Net.Http"
 #r "Newtonsoft.Json.dll"
 #r "Microsoft.Azure.WebJobs.dll"
