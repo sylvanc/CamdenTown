@@ -20,7 +20,8 @@ module Compile =
     let replace (pattern: string) (replacement: string) (source: string) =
       source.Replace(pattern, replacement)
 
-    let runFile localDir (mi: MethodInfo) =
+    let createAzureFiles
+      localDir (mi: MethodInfo) (attrs: AzureAttribute list) =
       let dllTemplate =
         """
 #I @"[[ASSEMBLYDIRECTORY]]"
@@ -41,10 +42,11 @@ let mutable unpickle: ([[FUNCTYPE]]) option = None
 
 let [[FUNCNAME]]Execute([[PARAMETERS]]) =
   if unpickle.IsNone then
+    let dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
     let vagabond = Vagabond.Initialize()
     let serializer = vagabond.Serializer
 
-    let asmPickle = File.ReadAllBytes(__dir + "/pickle.asm")
+    let asmPickle = File.ReadAllBytes(dir + "/pickle.asm")
     let exAsm = serializer.UnPickle<ExportableAssembly []>(asmPickle)
 
     let vas =
@@ -60,7 +62,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
     let lr = vagabond.LoadVagabondAssemblies(vas)
 
-    let pickle = File.ReadAllBytes(__dir + "/pickle.bin")
+    let pickle = File.ReadAllBytes(dir + "/pickle.bin")
     unpickle <- Some (serializer.UnPickle<obj>(pickle) :?> [[FUNCTYPE]])
 
   try
@@ -93,7 +95,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
       let assemblies =
         Directory.GetFiles(localDir, "*.dll")
-        |> Array.map (Path.GetFileName >> sprintf "#r \"%s\"")
+        |> Array.map (Path.GetFileName >> sprintf "#r \"./%s\"")
         |> String.concat "\n"
 
       let asmdir =
@@ -105,8 +107,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
         |> replace "[[ASSEMBLIES]]" assemblies
         |> replace "[[FUNCNAME]]" mi.Name
         |> replace "[[FUNCTYPE]]" functype
-        |> replace "[[PARAMETERS]]"
-          (Array.append ps [| "__dir: string" |] |> String.concat ", ")
+        |> replace "[[PARAMETERS]]" (ps |> String.concat ", ")
         |> replace "[[ARGUMENTS]]" (args |> String.concat ", ")
 
       let dllFile = sprintf "%s/%s.fsx" localDir mi.Name 
@@ -133,9 +134,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
       let compiler = SimpleSourceCodeServices()
       let (errors, code) = compiler.Compile(flags)
 
-      if code = 0 then
-        Assembly.LoadFrom(dllName) |> ignore
-      else
+      if code <> 0 then
         let errtext = errors |> Array.map (fun err -> err.ToString())
         failwith <| String.concat "\n" errtext
 
@@ -143,6 +142,7 @@ let [[FUNCNAME]]Execute([[PARAMETERS]]) =
 
       let template =
           """
+[[ASSEMBLIES]]
 #r "./[[DLLNAME]]"
 
 let Run([[PARAMETERS]]) =
@@ -151,16 +151,15 @@ let Run([[PARAMETERS]]) =
 
       let source =
         template
+        |> replace "[[ASSEMBLIES]]" assemblies
         |> replace "[[DLLNAME]]" (Path.GetFileName(dllName))
         |> replace "[[FUNCNAME]]" mi.Name
         |> replace "[[PARAMETERS]]" (ps |> String.concat ", ")
-        |> replace "[[ARGUMENTS]]"
-          (Array.append args [| "__SOURCE_DIRECTORY__" |] |> String.concat ", ")
+        |> replace "[[ARGUMENTS]]" (args |> String.concat ", ")
 
       let file = sprintf "%s/run.fsx" localDir
       File.WriteAllText(file, source)
 
-    let functionJson localDir (attrs: AzureAttribute list) =
       let bindings =
         attrs
         |> List.collect (fun attr -> attr.Json())
@@ -230,9 +229,9 @@ let Run([[PARAMETERS]]) =
       let asmdir =
         Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)
 
-      [ "../packages/FsPickler/lib/net45/FsPickler.dll"
-        "../packages/Vagabond/lib/net45/Vagabond.dll"
-        "../packages/Mono.Cecil/lib/net45/Mono.Cecil.dll"
+      [ "FsPickler.dll"
+        "Vagabond.dll"
+        "Mono.Cecil.dll"
       ]
       |> List.iter (fun file ->
         let source = sprintf "%s/%s" asmdir file
@@ -240,9 +239,7 @@ let Run([[PARAMETERS]]) =
         File.Copy(source, target)
       )
 
-      functionJson localDir attrs
-      runFile localDir mi
-
+      createAzureFiles localDir mi attrs
       localDir, attrs |> List.collect (fun attr -> attr.Build localDir)
 
     let getAttrs (mi: MethodInfo) =

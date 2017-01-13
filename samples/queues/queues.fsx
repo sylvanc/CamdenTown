@@ -2,6 +2,7 @@
 
 open Microsoft.Azure.WebJobs
 open Microsoft.Azure.WebJobs.Host
+open CamdenTown.FunctionApp
 open CamdenTown.Attributes
 
 [<CLIMutable>]
@@ -31,3 +32,7 @@ let QueueSecond(input: Foo, log: TraceWriter) =
 [<QueueTrigger(typeof<Queue3>)>]
 let QueueThird(input: Foo, log: TraceWriter) =
   log.Verbose(sprintf "%s wants %s" input.Name input.Food)
+
+let trigger (app: AzureFunctionApp) name food =
+  let inQ = app.Queue<Queue1, Foo>()
+  inQ.Push({Name = name; Food = food})

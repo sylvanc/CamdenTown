@@ -42,13 +42,14 @@ module Storage =
         None
 
     member this.WaitAndPop () =
-      let rec fetch () =
+      async {
         match this.Pop() with
-        | Some x -> x
+        | Some x ->
+          return x
         | None ->
-          Async.Sleep(500) |> Async.RunSynchronously
-          fetch ()
-      fetch ()
+          do! Async.Sleep(500)
+          return this.WaitAndPop()
+      } |> Async.RunSynchronously
 
   type LiveContainer<'T>(c: CloudBlobContainer) =
     let isStream = typeof<'T> = typeof<Stream>
