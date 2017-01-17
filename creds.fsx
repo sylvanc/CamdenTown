@@ -7,6 +7,7 @@ module Creds
     https://github.com/Azure/azure-xplat-cli/
   2. Log in to Azure:
     > azure login
+  3. Display your account info, record below your default SubscriptionID (displayed
     as ID) and the TenantID (displayed as Tenant ID):
     > azure account show
   4. Create a client with a made up a ClientID and ClientSecret e.g. dynabadger123
