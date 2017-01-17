@@ -7,14 +7,15 @@ module Creds
     https://github.com/Azure/azure-xplat-cli/
   2. Log in to Azure:
     > azure login
-  3. Display your account info, recording the SubscriptionID (displayed
+  3. Display your account info, record below your default SubscriptionID (displayed
     as ID) and the TenantID (displayed as Tenant ID):
     > azure account show
-  4. Create a client:
+  4. Create a client with a made up a ClientID and ClientSecret e.g. dynabadger123
+    and record below the Service Principal Name displayed (probably has an http:// prefix):
     > azure ad sp create -n {ClientID} -p {ClientSecret}
-  5. This will display an application object ID GUID. Permission that
-    application object ID as a Contributor for your subscription:
-    > azure role assignment create --objectId {application object ID} -o Contributor -c /subscriptions/{SubscriptionID}/
+  5. Having created a client with an ObjectID (displayed as Object Id), permission that
+    ObjectID as a Contributor for your subscription:
+    > azure role assignment create --objectId {ObjectID} -o Contributor -c /subscriptions/{SubscriptionID}/
 *)
 
 let SubscriptionID = "Your subscription UUID"
